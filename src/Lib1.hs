@@ -10,6 +10,7 @@ where
 
 import DataFrame (DataFrame (..), Row, Column (..), ColumnType (..), Value (..))
 import InMemoryTables (TableName)
+import Data.Char
 
 type ErrorMessage = String
 
@@ -20,7 +21,21 @@ type Database = [(TableName, DataFrame)]
 -- 1) implement the function which returns a data frame by its name
 -- in provided Database list
 findTableByName :: Database -> String -> Maybe DataFrame
-findTableByName _ _ = error "findTableByName not implemented"
+findTableByName [] _ = Nothing
+findTableByName _ [] = Nothing
+findTableByName ((n,f):xs) name = 
+  if  stringToLower name  ==  stringToLower n  then Just f else findTableByName xs name
+
+--handmade toLower for string
+stringToLower :: String -> Either ErrorMessage String
+stringToLower [] = Left "Empty string"
+stringToLower (x:xs) = do
+    let lowercasedChar = charToString x
+    rest <- stringToLower xs --allows to turn 'Either ErrorMessage String' into a String
+    return (lowercasedChar ++ rest)
+
+charToString :: Char -> String
+charToString c = [toLower c]
 
 -- 2) implement the function which parses a "select * from ..."
 -- sql statement and extracts a table name from the statement
