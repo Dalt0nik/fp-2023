@@ -24,18 +24,8 @@ findTableByName :: Database -> String -> Maybe DataFrame
 findTableByName [] _ = Nothing
 findTableByName _ [] = Nothing
 findTableByName ((n,f):xs) name = 
-  if  stringToLower name  ==  stringToLower n  then Just f else findTableByName xs name
+  if  map toLower name  ==  map toLower n  then Just f else findTableByName xs name
 
---handmade toLower for string
-stringToLower :: String -> Either ErrorMessage String
-stringToLower [] = Left "Empty string"
-stringToLower (x:xs) = do
-    let lowercasedChar = charToString x
-    rest <- stringToLower xs --allows to turn 'Either ErrorMessage String' into a String
-    return (lowercasedChar ++ rest)
-
-charToString :: Char -> String
-charToString c = [toLower c]
 
 -- 2) implement the function which parses a "select * from ..."
 -- sql statement and extracts a table name from the statement
