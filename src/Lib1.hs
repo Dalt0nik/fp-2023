@@ -21,7 +21,11 @@ type Database = [(TableName, DataFrame)]
 -- 1) implement the function which returns a data frame by its name
 -- in provided Database list
 findTableByName :: Database -> String -> Maybe DataFrame
-findTableByName _ _ = error "findTableByName not implemented"
+findTableByName [] _ = Nothing
+findTableByName _ [] = Nothing
+findTableByName ((n,f):xs) name = 
+  if  map toLower name  ==  map toLower n  then Just f else findTableByName xs name
+
 
 -- 2) implement the function which parses a "select * from ..."
 -- sql statement and extracts a table name from the statement
