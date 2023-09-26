@@ -43,7 +43,64 @@ parseSelectAllStatement sql = case (map toLower sql) of
 -- 3) implement the function which validates tables: checks if
 -- columns match value types, if rows sizes match columns,..
 validateDataFrame :: DataFrame -> Either ErrorMessage ()
-validateDataFrame _ = error "validateDataFrame ot implemented"
+validateDataFrame (DataFrame [] _) = Left "DataFrame has no columns"    
+validateDataFrame (DataFrame _ []) = Left "DataFrame has no rows"
+validateDataFrame dfs =
+   case checkLengthOfRows (lengthOfColumn dfs) dfs of
+   Right () -> 
+    case checkTypesInRows dfs of
+      Right () -> Right ()
+      Left errorMessage -> Left errorMessage
+   Left errorMessage -> Left errorMessage
+
+listLength :: [a] -> Integer
+listLength a =
+  let
+      listLength' :: [a] -> Integer -> Integer
+      listLength' [] a' = a'
+      listLength' (_:xs) a' = listLength' xs (a' + 1) 
+  in listLength' a 0
+
+-- first Integer of the function is the number of columns
+checkLengthOfRows :: Integer -> DataFrame -> Either ErrorMessage ()
+checkLengthOfRows a (DataFrame _ r) = goThroughRows a r
+   where 
+       goThroughRows :: Integer -> [Row] -> Either ErrorMessage ()
+       goThroughRows _ [] = Right ()
+       goThroughRows num (x:xs) =  
+        if listLength x == num then goThroughRows a xs else Left (show a ++ " expected but " ++ show (listLength x) ++ " found")
+
+lengthOfColumn :: DataFrame -> Integer
+lengthOfColumn (DataFrame c _) = listLength c
+
+extractColumnTypeFromColumn :: Column -> Char
+extractColumnTypeFromColumn (Column _ c) = 
+  case c of
+    IntegerType -> 'I'
+    StringType -> 'S'
+    BoolType -> 'B'
+
+extractValueTypeFromValue :: Value -> Char
+extractValueTypeFromValue v = 
+  case v of
+    (IntegerValue _) -> 'I'
+    (StringValue _) -> 'S'
+    (BoolValue _) -> 'B'
+    NullValue -> 'N'
+
+checkTypesInRows :: DataFrame -> Either ErrorMessage ()
+checkTypesInRows (DataFrame c r) = checkThroughRows c r
+  where
+    checkThroughRows :: [Column] -> [Row] -> Either ErrorMessage ()
+    checkThroughRows _ [] = Right ()
+    checkThroughRows column (row:rowLeft) = 
+      let
+        checkOneRow :: [Column] -> [Value] -> Bool
+        checkOneRow [] _ = True
+        checkOneRow (_:_) [] = True
+        checkOneRow (col:colLeft) (val:valLeft) = 
+          if (extractColumnTypeFromColumn col == extractValueTypeFromValue val) || (extractValueTypeFromValue val == 'N') then checkOneRow colLeft valLeft else False
+      in if checkOneRow column row then checkThroughRows column rowLeft else Left "Column type mismatches value type"
 
 -- 4) implement the function which renders a given data frame
 -- as ascii-art table (use your imagination, there is no "correct"
