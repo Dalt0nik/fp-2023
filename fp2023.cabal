@@ -27,6 +27,7 @@ library
   exposed-modules:
       DataFrame
       InMemoryTables
+      Lessons.Draft
       Lessons.Lesson01
       Lessons.Lesson02
       Lib1
