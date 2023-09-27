@@ -108,3 +108,60 @@ checkTypesInRows (DataFrame c r) = checkThroughRows c r
 -- width (in chars, provided as the first argument)
 renderDataFrameAsTable :: Integer -> DataFrame -> String
 renderDataFrameAsTable _ _ = error "renderDataFrameAsTable not implemented"
+
+-- Function to convert a row to a list of strings
+rowToList :: Integer -> Row -> [String]
+rowToList availableWidth = map (valueToString availableWidth)
+  where
+    valueToString :: Integer -> Value -> String
+    valueToString width NullValue = padString "null" width ++ "|"
+    valueToString width (IntegerValue n) = padString (show n) width ++ "|"
+    valueToString width (StringValue s) = padString s width ++ "|"
+    valueToString width (BoolValue True) = padString "true" width ++ "|"
+    valueToString width (BoolValue False) = padString "false" width ++ "|"
+
+    -- Function to pad a string with spaces to a specified width
+    padString :: String -> Integer -> String
+    padString s width = take (fromIntegral width) (s ++ repeat ' ')
+
+-- Function to concatenate a list of strings without spaces
+listToStringWithoutSpaces :: [String] -> String
+listToStringWithoutSpaces = concat
+
+-- Function to print the entire table (all rows) of a DataFrame as a single string
+printTableAsString :: Integer -> (a, DataFrame) -> IO ()
+printTableAsString _ (_, DataFrame _ []) = putStrLn "DataFrame has no rows."
+printTableAsString width (_, DataFrame _ rows) = do
+    let numberOfColumns = case rows of
+            [] -> 0
+            (firstRow:_) -> length firstRow
+        separatorLine = "+" ++ concat (replicate numberOfColumns (replicate ((fromInteger width - 1) `div` fromIntegral numberOfColumns - 1) '-' ++ "+")) ++ "\n"
+        rowStrings = map (\row -> separatorLine ++ "|" ++ listToStringWithoutSpaces (rowToList (((width - 1) `div` fromIntegral numberOfColumns) - 1) row) ++ "\n") rows
+        tableAsString = concat rowStrings ++ separatorLine
+    putStrLn tableAsString
+
+
+
+tableEmployees :: (TableName, DataFrame)
+tableEmployees =
+  ( "employees",
+    DataFrame
+      [Column "id" IntegerType, Column "first_name" StringType, Column "last_name" StringType, Column "age" IntegerType]
+      [ [IntegerValue 1, NullValue, StringValue "Johnson", IntegerValue 30],
+        [IntegerValue 2, StringValue "Bob", StringValue "Smith", IntegerValue 28],
+        [IntegerValue 3, StringValue "Charlie", StringValue "Brown", IntegerValue 35],
+        [IntegerValue 4, StringValue "David", StringValue "Lee", IntegerValue 40],
+        [IntegerValue 5, StringValue "Eve", StringValue "Wilson", IntegerValue 25],
+        [IntegerValue 6, StringValue "Frank", StringValue "Davis", IntegerValue 32],
+        [IntegerValue 7, StringValue "Grace", StringValue "Miller", IntegerValue 27],
+        [IntegerValue 8, StringValue "Hannah", StringValue "Thompson", IntegerValue 42],
+        [IntegerValue 9, StringValue "Isaac", StringValue "Brown", IntegerValue 38],
+        [IntegerValue 10, StringValue "Jane", StringValue "Adams", IntegerValue 29],
+        [IntegerValue 11, StringValue "Kevin", StringValue "Taylor", IntegerValue 33],
+        [IntegerValue 12, StringValue "Linda", StringValue "Hall", IntegerValue 45],
+        [IntegerValue 13, StringValue "Mike", StringValue "Clark", IntegerValue 31],
+        [IntegerValue 14, StringValue "Nancy", StringValue "Lewis", IntegerValue 36],
+        [IntegerValue 15, StringValue "Olivia", StringValue "White", IntegerValue 26]
+      ]
+  )
+
