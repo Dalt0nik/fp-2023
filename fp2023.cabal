@@ -30,6 +30,7 @@ library
       Lessons.Draft
       Lessons.Lesson01
       Lessons.Lesson02
+      Lessons.Lesson03
       Lib1
   other-modules:
       Paths_fp2023
