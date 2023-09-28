@@ -67,7 +67,7 @@ checkLengthOfRows a (DataFrame _ r) = goThroughRows a r
        goThroughRows :: Integer -> [Row] -> Either ErrorMessage ()
        goThroughRows _ [] = Right ()
        goThroughRows num (x:xs) =
-        if listLength x == num then goThroughRows a xs else Left (show a ++ " expected but " ++ show (listLength x) ++ " found")
+        if listLength x == num then goThroughRows a xs else Left (show a ++ " values expected in a row but " ++ show (listLength x) ++ " found")
 
 lengthOfColumn :: DataFrame -> Integer
 lengthOfColumn (DataFrame c _) = listLength c
