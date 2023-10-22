@@ -7,21 +7,56 @@ module Lib2
   )
 where
 
-import DataFrame (DataFrame)
-import InMemoryTables (TableName)
+import DataFrame (DataFrame (..), Value (..), Column (..), ColumnType (..))
+import InMemoryTables (TableName, database)
+import Data.Char (toLower)
 
 type ErrorMessage = String
 type Database = [(TableName, DataFrame)]
 
--- Keep the type, modify constructors
-data ParsedStatement = ParsedStatement
+data Condition
+  = Comparison Column Operator Value
+  | Aggregation AggregateFunction Column
+  | LogicalOperator Condition LogicalOp Condition
+
+data Operator
+  = Equals
+  | NotEquals
+  | LessThan
+  | GreaterThan
+  | LessThanOrEqual
+  | GreaterThanOrEqual
+
+data AggregateFunction
+  = Min
+  | Sum
+
+data LogicalOp
+  = Or
+
+data ParsedStatement
+  = ShowTablesStatement
+  | ShowTableStatement TableName
+  | SelectStatement [Column] TableName [Condition]
 
 -- Parses user input into an entity representing a parsed
 -- statement
 parseStatement :: String -> Either ErrorMessage ParsedStatement
-parseStatement _ = Left "Not implemented: parseStatement"
+parseStatement input
+  | map toLower input == "show tables" = Right ShowTablesStatement
+  -- | -- SHOW TABLE name parsing
+  -- | -- SELECT parsing
+  | otherwise = Left "Not implemented: parseStatement"
+
 
 -- Executes a parsed statemet. Produces a DataFrame. Uses
 -- InMemoryTables.databases a source of data.
 executeStatement :: ParsedStatement -> Either ErrorMessage DataFrame
+executeStatement ShowTablesStatement = Right $ DataFrame [Column "Table Name" StringType] (map (\tableName -> [StringValue tableName]) (showTables database))
+-- | -- SelectStatement implementation
+-- | -- ShowTableStatement implementation
 executeStatement _ = Left "Not implemented: executeStatement"
+
+--used in ShowTables execution
+showTables :: Database -> [TableName]
+showTables db = map fst db
