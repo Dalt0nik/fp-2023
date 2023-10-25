@@ -153,6 +153,11 @@ parseWhitespace = do
    _ <- some $ parseChar ' ' -- many means that it is 1 or more ' ' chars
    return ""
 
+parseQuotationMarks :: Parser String
+parseQuotationMarks = do
+  _ <- parseChar '\''
+  return ""
+
 parseWhereStatement :: Parser WhereStatement
 parseWhereStatement = do
    whereKeyWord <- parseKeyword "WHERE"
@@ -161,7 +166,9 @@ parseWhereStatement = do
    _ <- parseWhitespace
    condition <- parseStrConditions
    _ <- parseWhitespace
+   _ <- parseQuotationMarks
    conditionString <- parseName
+   _ <- parseQuotationMarks
    otherConditions <- many $ do
      _ <- parseWhitespace
      logicalOp <- parseLogicalOp
@@ -170,7 +177,9 @@ parseWhereStatement = do
      _ <- parseWhitespace
      condition' <- parseStrConditions
      _ <- parseWhitespace
+     _ <- parseQuotationMarks
      conditionString' <- parseName
+     _ <- parseQuotationMarks
      return (logicalOp, WhereStr columnName' condition' conditionString')
    return $ WhereStatement whereKeyWord (WhereStr columnName condition conditionString) otherConditions
 
