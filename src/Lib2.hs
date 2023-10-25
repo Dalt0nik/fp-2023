@@ -1,4 +1,6 @@
 {-# OPTIONS_GHC -Wno-unused-top-binds #-}
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# HLINT ignore "Redundant if" #-}
 
 module Lib2
   ( parseStatement,
@@ -7,7 +9,8 @@ module Lib2
   )
 where
 
-import DataFrame (DataFrame)
+--import DataFrame (DataFrame)
+import DataFrame (DataFrame (..), Row, Column (..), ColumnType (..), Value (..))
 import InMemoryTables (TableName)
 import Control.Applicative((<|>), empty, Alternative (some, many))
 import Data.Char(isAlphaNum, toLower, isSpace)
@@ -185,4 +188,47 @@ parseWhereStatement = do
 
 parseQuery :: String -> Either ErrorMessage (String, WhereStatement)
 parseQuery = runParser parseWhereStatement
+
+compareStrEqual :: String -> String -> Bool
+compareStrEqual [] [] = False
+compareStrEqual s1 s2 = if length s1 /= length s2 then False else checkByChar s1 s2
+  where
+    checkByChar :: String -> String -> Bool
+    checkByChar [] [] = True
+    checkByChar (x1:xs1) (x2:xs2) = if x1 == x2 then checkByChar xs1 xs2 else False
+
+compareStrNotEqual :: String -> String -> Bool
+compareStrNotEqual s1 s2 = not (compareStrEqual s1 s2)
+
+compareStrGreaterOrEqual :: String -> String -> Bool
+compareStrGreaterOrEcqual [] [] = False
+compareStrGreaterOrEqual [] _ = False
+compareStrGreaterOrEqual _ [] = False
+compareStrGreaterOrEqual (x1:_) (x2:_) = toLower x1 >= toLower x2
+
+compareStrLessOrEqual :: String -> String -> Bool
+compareStrLessOrEqual [] [] = False
+compareStrLessOrEqual [] _ = False
+compareStrLessOrEqual _ [] = False
+compareStrLessOrEqual (x1:_) (x2:_) = toLower x1 <= toLower x2
+
+tableEmployees :: DataFrame
+tableEmployees = DataFrame
+    [Column "id" IntegerType, Column "name" StringType, Column "surname" StringType]
+    [ [IntegerValue 1, StringValue "Vi", StringValue "Po"],
+    [IntegerValue 2, StringValue "Ed", StringValue "Dl"] ]
+
+extractColumnValuesByColumnName :: DataFrame -> ColumnName -> Either ErrorMessage [Value]
+extractColumnValuesByColumnName (DataFrame col rows) cn = extractValues (extractColumnByColumnName 0 col cn) rows
+  where
+    extractColumnByColumnName :: Int -> [Column] -> ColumnName -> Int
+    extractColumnByColumnName _ [] _ = -1
+    extractColumnByColumnName a ((Column colName _):colLeft) cn = if colName == cn then a else extractColumnByColumnName (a + 1) colLeft cn
+
+    extractValues :: Int -> [Row] -> Either ErrorMessage [Value]
+    extractValues (-1) _ = Left "There is no such column"
+    extractValues a rows = Right $ map (\row -> row !! a) rows -- !! extracts needed value from a list by its index
+
+
+  
 
