@@ -130,7 +130,7 @@ data LogicalOp = Or deriving Show
 
 data WhereStr = WhereStr ColumnName Operator String deriving Show
 
-data WhereStatement = WhereStatement String WhereStr [(LogicalOp, WhereStr)] deriving Show
+data WhereStatement = WhereStatement WhereStr [(LogicalOp, WhereStr)] deriving Show
 
 type ColumnName = String
 
@@ -164,7 +164,7 @@ parseQuotationMarks = do
 
 parseWhereStatement :: Parser WhereStatement
 parseWhereStatement = do
-   whereKeyWord <- parseKeyword "WHERE"
+   _ <- parseKeyword "WHERE"
    _ <- parseWhitespace
    columnName <- parseName
    _ <- parseWhitespace
@@ -185,7 +185,7 @@ parseWhereStatement = do
      conditionString' <- parseName
      _ <- parseQuotationMarks
      return (logicalOp, WhereStr columnName' condition' conditionString')
-   return $ WhereStatement whereKeyWord (WhereStr columnName condition conditionString) otherConditions
+   return $ WhereStatement (WhereStr columnName condition conditionString) otherConditions
 
 parseQuery :: String -> Either ErrorMessage (String, WhereStatement)
 parseQuery = runParser parseWhereStatement
@@ -219,16 +219,23 @@ tableEmployees = DataFrame
     [ [IntegerValue 1, StringValue "Vi", StringValue "Po"],
     [IntegerValue 2, StringValue "Ed", StringValue "Dl"] ]
 
-extractColumnValuesByColumnName :: DataFrame -> ColumnName -> Either ErrorMessage [Value]
-extractColumnValuesByColumnName (DataFrame col rows) cn = extractValues (extractColumnByColumnName 0 col cn) rows
-  where
-    extractColumnByColumnName :: Int -> [Column] -> ColumnName -> Int
-    extractColumnByColumnName _ [] _ = -1
-    extractColumnByColumnName a ((Column colName _):colLeft) cn = if colName == cn then a else extractColumnByColumnName (a + 1) colLeft cn
 
-    extractValues :: Int -> [Row] -> Either ErrorMessage [Value]
-    extractValues (-1) _ = Left "There is no such column"
-    extractValues a r = Right $ map (\row -> row !! a) r -- !! extracts needed value from a list by its index
+extractColumnValuesByColumnNames :: DataFrame -> [ColumnName] -> Either ErrorMessage [[Value]]
+extractColumnValuesByColumnNames  _ [] = Left "No column name in the output"
+extractColumnValuesByColumnNames (DataFrame col rows) colNames = if all (\a -> a /= -1) indexesOfColumns then Right $ map (\i -> extractValues i rows) indexesOfColumns else Left "Column(-s) not found" --all returns true if all elemtnts of a list are true with the condition
+  where
+    indexesOfColumns = map (extractColumnByColumnName' 0 col) colNames
+
+    extractColumnByColumnName' :: Int -> [Column] -> ColumnName -> Int
+    extractColumnByColumnName' _ [] _ = -1
+    extractColumnByColumnName' a ((Column colName _):colLeft) cn = if colName == cn then a else extractColumnByColumnName' (a + 1) colLeft cn
+    
+    extractValues :: Int -> [Row] -> [Value]
+    extractValues a r = map (\row -> row !! a) r -- !! extracts needed value from a list by its index
+
+
+
+    --SELECT name FROM tableEmploees WHERE name = "vi"
 
 
   
