@@ -120,14 +120,15 @@ parseKeyword keyword = Parser $ \inp ->
   where
     l = length keyword
 ----------------MY CODE-----------------------
-data StrCoditions = Equal
-                  | NotEqual
-                  | GreaterOrEqual
-                  | LessOrEqual deriving Show
+
+data Operator = Equals
+              | NotEquals
+              | LessThanOrEqual
+              | GreaterThanOrEqual deriving Show          
 
 data LogicalOp = Or deriving Show
 
-data WhereStr = WhereStr ColumnName StrCoditions String deriving Show
+data WhereStr = WhereStr ColumnName Operator String deriving Show
 
 data WhereStatement = WhereStatement String WhereStr [(LogicalOp, WhereStr)] deriving Show
 
@@ -136,20 +137,20 @@ type ColumnName = String
 parseLogicalOp :: Parser LogicalOp
 parseLogicalOp = parseKeyword "OR" >> pure Or
 
-parseStrConditions :: Parser StrCoditions
-parseStrConditions = parseEqual <|> parseNotEqual <|> parseGreaterOrEqual <|> parseLessOrEqual
+parseOperator :: Parser Operator
+parseOperator = parseEquals <|> parseNotEquals <|> parseGreaterThanOrEqual <|> parseLessThanOrEqual
   where
-    parseEqual :: Parser StrCoditions
-    parseEqual = parseKeyword "=" >> pure Equal
+    parseEquals :: Parser Operator
+    parseEquals = parseKeyword "=" >> pure Equals
 
-    parseNotEqual :: Parser StrCoditions
-    parseNotEqual = parseKeyword "<>" >> pure NotEqual
+    parseNotEquals :: Parser Operator
+    parseNotEquals = parseKeyword "<>" >> pure NotEquals
 
-    parseGreaterOrEqual :: Parser StrCoditions
-    parseGreaterOrEqual = parseKeyword ">=" >> pure GreaterOrEqual
+    parseGreaterThanOrEqual :: Parser Operator
+    parseGreaterThanOrEqual = parseKeyword ">=" >> pure GreaterThanOrEqual
 
-    parseLessOrEqual :: Parser StrCoditions
-    parseLessOrEqual = parseKeyword "<=" >> pure LessOrEqual
+    parseLessThanOrEqual :: Parser Operator
+    parseLessThanOrEqual = parseKeyword "<=" >> pure LessThanOrEqual
 
 parseWhitespace :: Parser String
 parseWhitespace = do
@@ -167,7 +168,7 @@ parseWhereStatement = do
    _ <- parseWhitespace
    columnName <- parseName
    _ <- parseWhitespace
-   condition <- parseStrConditions
+   condition <- parseOperator
    _ <- parseWhitespace
    _ <- parseQuotationMarks
    conditionString <- parseName
@@ -178,7 +179,7 @@ parseWhereStatement = do
      _ <- parseWhitespace
      columnName' <- parseName
      _ <- parseWhitespace
-     condition' <- parseStrConditions
+     condition' <- parseOperator
      _ <- parseWhitespace
      _ <- parseQuotationMarks
      conditionString' <- parseName
@@ -200,17 +201,17 @@ compareStrEqual s1 s2 = if length s1 /= length s2 then False else checkByChar s1
 compareStrNotEqual :: String -> String -> Bool
 compareStrNotEqual s1 s2 = not (compareStrEqual s1 s2)
 
-compareStrGreaterOrEqual :: String -> String -> Bool
-compareStrGreaterOrEcqual [] [] = False
-compareStrGreaterOrEqual [] _ = False
-compareStrGreaterOrEqual _ [] = False
-compareStrGreaterOrEqual (x1:_) (x2:_) = toLower x1 >= toLower x2
+isFirstStrGreaterOrEqual :: String -> String -> Bool
+isFirstStrGreaterOrEqual [] [] = False
+isFirstStrGreaterOrEqual [] _ = False
+isFirstStrGreaterOrEqual _ [] = False
+isFirstStrGreaterOrEqual s1 s2 = s1 >= s2
 
-compareStrLessOrEqual :: String -> String -> Bool
-compareStrLessOrEqual [] [] = False
-compareStrLessOrEqual [] _ = False
-compareStrLessOrEqual _ [] = False
-compareStrLessOrEqual (x1:_) (x2:_) = toLower x1 <= toLower x2
+isFirstStrLessOrEqual :: String -> String -> Bool
+isFirstStrLessOrEqual [] [] = False
+isFirstStrLessOrEqual [] _ = False
+isFirstStrLessOrEqual _ [] = False
+isFirstStrLessOrEqual s1 s2 = s1 <= s2
 
 tableEmployees :: DataFrame
 tableEmployees = DataFrame
@@ -227,7 +228,7 @@ extractColumnValuesByColumnName (DataFrame col rows) cn = extractValues (extract
 
     extractValues :: Int -> [Row] -> Either ErrorMessage [Value]
     extractValues (-1) _ = Left "There is no such column"
-    extractValues a rows = Right $ map (\row -> row !! a) rows -- !! extracts needed value from a list by its index
+    extractValues a r = Right $ map (\row -> row !! a) r -- !! extracts needed value from a list by its index
 
 
   
