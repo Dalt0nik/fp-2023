@@ -120,6 +120,9 @@ parseKeyword keyword = Parser $ \inp ->
   where
     l = length keyword
 ----------------MY CODE-----------------------
+data AggregateFunction
+  = Min
+  | Sum deriving Show 
 
 data Operator = Equals
               | NotEquals
@@ -128,9 +131,11 @@ data Operator = Equals
 
 data LogicalOp = Or deriving Show
 
-data WhereStr = WhereStr ColumnName Operator String deriving Show
+data WhereAtomicStatement = Where ColumnName Operator String deriving Show
 
-data WhereStatement = WhereStatement WhereStr [(LogicalOp, WhereStr)] deriving Show
+data Condition
+  = Comparison WhereAtomicStatement [(LogicalOp, WhereAtomicStatement)] -- string aka column
+  | Aggregation AggregateFunction String deriving Show -- string aka column 
 
 type ColumnName = String
 
@@ -162,7 +167,7 @@ parseQuotationMarks = do
   _ <- parseChar '\''
   return ""
 
-parseWhereStatement :: Parser WhereStatement
+parseWhereStatement :: Parser Condition
 parseWhereStatement = do
    _ <- parseKeyword "WHERE"
    _ <- parseWhitespace
@@ -184,10 +189,10 @@ parseWhereStatement = do
      _ <- parseQuotationMarks
      conditionString' <- parseName
      _ <- parseQuotationMarks
-     return (logicalOp, WhereStr columnName' condition' conditionString')
-   return $ WhereStatement (WhereStr columnName condition conditionString) otherConditions
+     return (logicalOp, Where columnName' condition' conditionString')
+   return $ Comparison (Where columnName condition conditionString) otherConditions
 
-parseWhere :: String -> Either ErrorMessage (String, WhereStatement)
+parseWhere :: String -> Either ErrorMessage (String, Condition)
 parseWhere = runParser parseWhereStatement
 
 extractColumnValuesByColumnNames :: DataFrame -> [ColumnName] -> Either ErrorMessage [[Value]]
