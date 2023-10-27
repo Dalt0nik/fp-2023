@@ -187,8 +187,32 @@ parseWhereStatement = do
      return (logicalOp, WhereStr columnName' condition' conditionString')
    return $ WhereStatement (WhereStr columnName condition conditionString) otherConditions
 
-parseQuery :: String -> Either ErrorMessage (String, WhereStatement)
-parseQuery = runParser parseWhereStatement
+parseWhere :: String -> Either ErrorMessage (String, WhereStatement)
+parseWhere = runParser parseWhereStatement
+
+extractColumnValuesByColumnNames :: DataFrame -> [ColumnName] -> Either ErrorMessage [[Value]]
+extractColumnValuesByColumnNames  _ [] = Left "No column name in the output"
+extractColumnValuesByColumnNames (DataFrame col rows) colNames = if all (\a -> a /= -1) indexesOfColumns then Right $ map (\i -> extractValues i rows) indexesOfColumns else Left "Column(-s) not found" --all returns true if all elemtnts of a list are true with the condition
+  where
+    indexesOfColumns = map (extractColumnByColumnName' 0 col) colNames
+
+    extractColumnByColumnName' :: Int -> [Column] -> ColumnName -> Int
+    extractColumnByColumnName' _ [] _ = -1
+    extractColumnByColumnName' a ((Column colName _):colLeft) cn = if colName == cn then a else extractColumnByColumnName' (a + 1) colLeft cn
+    
+    extractValues :: Int -> [Row] -> [Value]
+    extractValues a r = map (\row -> row !! a) r -- !! extracts needed value from a list by its index
+
+------------------------------VALUE FOR TESTS START------------------------------
+tableEmployees :: DataFrame
+tableEmployees = DataFrame
+    [Column "id" IntegerType, Column "name" StringType, Column "surname" StringType]
+    [ [IntegerValue 1, StringValue "Vi", StringValue "Po"],
+    [IntegerValue 2, StringValue "Ed", StringValue "Dl"] ]
+test :: [Value]
+test = [IntegerValue 1, StringValue "Po", IntegerValue 2, StringValue "Ed", StringValue "Dl"]
+------------------------------VALUE FOR TESTS END------------------------------
+--SELECT name FROM tableEmploees WHERE name = "vi"
 
 compareStrEqual :: String -> String -> Bool
 compareStrEqual [] [] = False
@@ -213,29 +237,37 @@ isFirstStrLessOrEqual [] _ = False
 isFirstStrLessOrEqual _ [] = False
 isFirstStrLessOrEqual s1 s2 = s1 <= s2
 
-tableEmployees :: DataFrame
-tableEmployees = DataFrame
-    [Column "id" IntegerType, Column "name" StringType, Column "surname" StringType]
-    [ [IntegerValue 1, StringValue "Vi", StringValue "Po"],
-    [IntegerValue 2, StringValue "Ed", StringValue "Dl"] ]
-
-
-extractColumnValuesByColumnNames :: DataFrame -> [ColumnName] -> Either ErrorMessage [[Value]]
-extractColumnValuesByColumnNames  _ [] = Left "No column name in the output"
-extractColumnValuesByColumnNames (DataFrame col rows) colNames = if all (\a -> a /= -1) indexesOfColumns then Right $ map (\i -> extractValues i rows) indexesOfColumns else Left "Column(-s) not found" --all returns true if all elemtnts of a list are true with the condition
+compareStrEqualWithColumn :: [Value] -> String -> [Value] --DOES NOT CHECK WHETHER [VALUE] IS STRING OR ANY OTHER TYPE, YOU MUST BE SURE THAT [Value] PARAMETER IS STRING!
+compareStrEqualWithColumn colVals str = filter (not . isNullValue) (fmap filterValues colVals)
   where
-    indexesOfColumns = map (extractColumnByColumnName' 0 col) colNames
+    filterValues :: Value -> Value
+    filterValues (StringValue s) = if compareStrEqual s str then StringValue s else NullValue 
+    filterValues _ = NullValue
 
-    extractColumnByColumnName' :: Int -> [Column] -> ColumnName -> Int
-    extractColumnByColumnName' _ [] _ = -1
-    extractColumnByColumnName' a ((Column colName _):colLeft) cn = if colName == cn then a else extractColumnByColumnName' (a + 1) colLeft cn
-    
-    extractValues :: Int -> [Row] -> [Value]
-    extractValues a r = map (\row -> row !! a) r -- !! extracts needed value from a list by its index
+compareStrNotEqualWithColumn :: [Value] -> String -> [Value] --DOES NOT CHECK WHETHER [VALUE] IS STRING OR ANY OTHER TYPE, YOU MUST BE SURE THAT [Value] PARAMETER IS STRING!
+compareStrNotEqualWithColumn colVals str = filter (not . isNullValue) (fmap filterValues colVals)
+  where
+    filterValues :: Value -> Value
+    filterValues (StringValue s) = if compareStrNotEqual s str then StringValue s else NullValue 
+    filterValues _ = NullValue
 
+compareStrGreaterOrEqualWithColumn :: [Value] -> String -> [Value] --DOES NOT CHECK WHETHER [VALUE] IS STRING OR ANY OTHER TYPE, YOU MUST BE SURE THAT [Value] PARAMETER IS STRING!
+compareStrGreaterOrEqualWithColumn colVals str = filter (not . isNullValue) (fmap filterValues colVals)
+  where
+    filterValues :: Value -> Value
+    filterValues (StringValue s) = if isFirstStrGreaterOrEqual s str then StringValue s else NullValue 
+    filterValues _ = NullValue
 
+compareStrLessOrEqualWithColumn :: [Value] -> String -> [Value] --DOES NOT CHECK WHETHER [VALUE] IS STRING OR ANY OTHER TYPE, YOU MUST BE SURE THAT [Value] PARAMETER IS STRING!
+compareStrLessOrEqualWithColumn colVals str = filter (not.isNullValue) (fmap filterValues colVals)
+  where
+    filterValues :: Value -> Value
+    filterValues (StringValue s) = if isFirstStrLessOrEqual s str then StringValue s else NullValue 
+    filterValues _ = NullValue
 
-    --SELECT name FROM tableEmploees WHERE name = "vi"
+isNullValue :: Value -> Bool
+isNullValue NullValue = True
+isNullValue _ = False
 
 
   
