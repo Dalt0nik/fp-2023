@@ -11,15 +11,41 @@ where
 
 --import DataFrame (DataFrame)
 import DataFrame (DataFrame (..), Row, Column (..), ColumnType (..), Value (..))
-import InMemoryTables (TableName)
+import InMemoryTables (TableName, database)
 import Control.Applicative((<|>), empty, Alternative (some, many))
 import Data.Char(isAlphaNum, toLower, isSpace)
+import Data.List
+import Data.Maybe
 
 type ErrorMessage = String
 type Database = [(TableName, DataFrame)]
 
--- Keep the type, modify constructors
-data ParsedStatement = ParsedStatement
+data AggregateFunction
+  = Min
+  | Sum deriving Show
+
+data Operator = Equals
+              | NotEquals
+              | LessThanOrEqual
+              | GreaterThanOrEqual deriving Show
+
+data LogicalOp = Or deriving Show
+
+data WhereAtomicStatement = Where ColumnName Operator String deriving Show
+
+data Condition
+  = Comparison WhereAtomicStatement [(LogicalOp, WhereAtomicStatement)] -- string aka column
+  | Aggregation AggregateFunction String deriving Show -- string aka column 
+
+data Columns = All
+  | SelectedColumns [String] deriving Show
+
+type ColumnName = String
+-- type TableName = String
+data ParsedStatement
+  = ShowTablesStatement
+  | ShowTableStatement TableName
+  | SelectStatement Columns TableName Condition deriving Show-- Condition
 
 newtype Parser a = Parser {
     runParser :: String -> Either ErrorMessage (String, a)
@@ -66,14 +92,131 @@ instance Monad Parser where
 -- Parses user input into an entity representing a parsed
 -- statement
 parseStatement :: String -> Either ErrorMessage ParsedStatement
-parseStatement _ = Left "Not implemented: parseStatement"
+parseStatement input
+  | map toLower input == "show tables" = Right ShowTablesStatement
+  -- | -- SHOW TABLE name parsing
+  | "select" `isPrefixOf` map toLower input = do
+    --let restOfQuery = drop 7 (map toLower input) -- Remove "select " TODO DELETE ALL WHITESPACES
+    (restOfQuery,_) <- runParser parseWhitespace $ drop 6 input 
+    parsedQuery <- parseSelectQuery restOfQuery
+    return parsedQuery
+  | otherwise = Left "Not implemented: parseStatement"
+
+
+parseSelectQuery :: String -> Either ErrorMessage ParsedStatement
+parseSelectQuery input = do
+    (input', columns) <- parseColumnListQuery input
+    (skip,_) <- runParser parseWhitespace input' 
+    (input'', tableName) <- parseFromClause skip
+    (input''', conditions) <- parseWhere input''
+    return (SelectStatement columns tableName conditions)
+
+parseFromClause :: String -> Either ErrorMessage (String, TableName)
+parseFromClause input = do
+    (rest, _) <- runParser (parseKeyword "FROM") input
+    (rest',_) <- runParser parseWhitespace rest 
+    (rest'', tableName) <- runParser parseName rest'
+    (rest''',_) <- runParser parseWhitespace rest''
+    return (rest''', tableName)
+
+-- Parse the list of columns to select until it encounters "FROM" keyword use parseColumnListQuery function 
+-- or MIN SUM agregate functions (use parseAggregateFunction function)
+
+-- Parse the "from" keyword
+
+-- Parse the table name
+
+-- Parse the conditions (if any) 
+-- use (parseWhere function)
+
+--return   Right (SelectStatement columns table conditions)
 
 -- Executes a parsed statemet. Produces a DataFrame. Uses
 -- InMemoryTables.databases a source of data.
-executeStatement :: ParsedStatement -> Either ErrorMessage DataFrame
+-- Execute a SELECT statement
+executeStatement :: ParsedStatement -> Either ErrorMessage DataFrame -- SHOW TABLE SHOULD BE ADDED!!!
+executeStatement (SelectStatement columns tableName condition) = do
+    -- Fetch the specified table
+    (tableKey, table) <- fetchTableFromDatabase tableName -- tableKey is tableName in lower case
+
+    -- Filter rows based on the condition
+    let filteredRows = filterRows (getColumns table) table condition
+
+    -- Extract the selected column names from the Columns type
+    let selectedColumnNames = case columns of
+            All -> map extractColumnName (getColumns table)
+            SelectedColumns colNames -> colNames
+
+    -- Get the indices of the selected columns
+    let selectedColumnIndexes = mapMaybe (\colName -> findColumnIndex (getColumns table) colName) selectedColumnNames
+
+    -- Select columns based on indices
+    let selectedColumns = map (\i -> (getColumns table) !! i) selectedColumnIndexes
+
+    -- Extract only the selected values from each row
+    let selectedRows = map (\row -> map (\i -> (row !! i)) selectedColumnIndexes) filteredRows
+
+    return $ DataFrame selectedColumns selectedRows
 executeStatement _ = Left "Not implemented: executeStatement"
 
-------------------------------START OF CHANGES----------------------------
+
+-- Fetch a table from the database
+fetchTableFromDatabase :: TableName -> Either ErrorMessage (TableName, DataFrame)
+fetchTableFromDatabase tableName = case lookup (map toLower tableName) database of
+    Just table -> Right (map toLower tableName, table)
+    Nothing -> Left (tableName ++ " not found")
+
+getColumns :: DataFrame -> [Column]
+getColumns (DataFrame columns _) = columns
+
+-- Find the index of a column by its name
+findColumnIndex :: [Column] -> ColumnName -> Maybe Int
+findColumnIndex columns columnName = elemIndex columnName (map extractColumnName columns)
+--   where
+--     extractColumnName :: Column -> ColumnName
+--     extractColumnName (Column name _) = name
+
+-- Filter rows based on the condition
+filterRows :: [Column] -> DataFrame -> Condition -> [Row]
+filterRows columns (DataFrame _ rows) condition = case condition of
+    Comparison whereStatement [] -> filter (evaluateWhereStatement whereStatement) rows
+    Comparison whereStatement logicalOps -> filter (evaluateWithLogicalOps whereStatement logicalOps) rows
+    Aggregation _ _ -> rows  -- No filtering needed for aggregation
+  where
+    evaluateWhereStatement :: WhereAtomicStatement -> Row -> Bool
+    evaluateWhereStatement (Where columnName op value) row = case op of
+        Equals -> extractValue columnName row == value
+        NotEquals -> extractValue columnName row /= value
+        LessThanOrEqual -> extractValue columnName row <= value
+        GreaterThanOrEqual -> extractValue columnName row >= value
+
+    evaluateWithLogicalOps :: WhereAtomicStatement -> [(LogicalOp, WhereAtomicStatement)] -> Row -> Bool
+    evaluateWithLogicalOps whereStatement [] row = evaluateWhereStatement whereStatement row
+    evaluateWithLogicalOps whereStatement ((Or, nextWhereStatement):rest) row =
+        evaluateWhereStatement whereStatement row || evaluateWithLogicalOps nextWhereStatement rest row
+
+    extractValue :: ColumnName -> Row -> String
+    extractValue columnName row =
+        case findColumnIndex columns columnName of
+            Just colIndex -> case row !! colIndex of
+                StringValue value -> value
+                _ -> ""
+            Nothing -> ""
+
+dataFrameColumns :: DataFrame -> [Column]
+dataFrameColumns (DataFrame columns _) = columns
+
+-- Select columns
+selectColumns :: [Column] -> Columns -> [Column]
+selectColumns allColumns (SelectedColumns colNames) =
+    filter (\col -> extractColumnName col `elem` colNames) allColumns
+
+extractColumnName :: Column -> ColumnName
+extractColumnName (Column name _) = name
+
+statement3 = SelectStatement (SelectedColumns ["id", "name"]) "employees" (Comparison (Where "surname" Equals "Po") [(Or, Where "name" Equals "Ed")])
+
+------------------------------PARSERS (BEFORE WHERE CLAUSE)----------------------------
 parseName :: Parser String
 parseName = Parser $ \inp ->
     case takeWhile isAlphaNum inp of --recognizes only letters and numbers (takeWhile stops when the first char which returns false occurses)
@@ -86,7 +229,6 @@ parseChar a = Parser $ \inp ->
         [] -> Left "Empty input"
         (x:xs) -> if a == x then Right (xs, a) else Left ([a] ++ " expected but " ++ [x] ++ " found")
 
-data Columns = All | ColumntList [String] deriving Show
 
 parseColumns :: Parser Columns
 parseColumns = parseAll <|> parseColumnList
@@ -98,7 +240,7 @@ parseColumnList :: Parser Columns
 parseColumnList = do
     name <- parseName
     other <- many parseCSName
-    return $ ColumntList $ name:other
+    return $ SelectedColumns $ name : other
 
 parseCSName :: Parser String
 parseCSName = do
@@ -119,26 +261,7 @@ parseKeyword keyword = Parser $ \inp ->
     Left $ keyword ++ " expected"
   where
     l = length keyword
-----------------MY CODE-----------------------
-data AggregateFunction
-  = Min
-  | Sum deriving Show 
-
-data Operator = Equals
-              | NotEquals
-              | LessThanOrEqual
-              | GreaterThanOrEqual deriving Show          
-
-data LogicalOp = Or deriving Show
-
-data WhereAtomicStatement = Where ColumnName Operator String deriving Show
-
-data Condition
-  = Comparison WhereAtomicStatement [(LogicalOp, WhereAtomicStatement)] -- string aka column
-  | Aggregation AggregateFunction String deriving Show -- string aka column 
-
-type ColumnName = String
-
+----------------WHERE PARSER-----------------------
 parseLogicalOp :: Parser LogicalOp
 parseLogicalOp = parseKeyword "OR" >> pure Or
 
@@ -194,86 +317,35 @@ parseWhereStatement = do
 
 parseWhere :: String -> Either ErrorMessage (String, Condition)
 parseWhere = runParser parseWhereStatement
-
-extractColumnValuesByColumnNames :: DataFrame -> [ColumnName] -> Either ErrorMessage [[Value]]
-extractColumnValuesByColumnNames  _ [] = Left "No column name in the output"
-extractColumnValuesByColumnNames (DataFrame col rows) colNames = if all (\a -> a /= -1) indexesOfColumns then Right $ map (\i -> extractValues i rows) indexesOfColumns else Left "Column(-s) not found" --all returns true if all elemtnts of a list are true with the condition
-  where
-    indexesOfColumns = map (extractColumnByColumnName' 0 col) colNames
-
-    extractColumnByColumnName' :: Int -> [Column] -> ColumnName -> Int
-    extractColumnByColumnName' _ [] _ = -1
-    extractColumnByColumnName' a ((Column colName _):colLeft) cn = if colName == cn then a else extractColumnByColumnName' (a + 1) colLeft cn
-    
-    extractValues :: Int -> [Row] -> [Value]
-    extractValues a r = map (\row -> row !! a) r -- !! extracts needed value from a list by its index
-
 ------------------------------VALUE FOR TESTS START------------------------------
-tableEmployees :: DataFrame
-tableEmployees = DataFrame
-    [Column "id" IntegerType, Column "name" StringType, Column "surname" StringType]
-    [ [IntegerValue 1, StringValue "Vi", StringValue "Po"],
-    [IntegerValue 2, StringValue "Ed", StringValue "Dl"] ]
-test :: [Value]
-test = [IntegerValue 1, StringValue "Po", IntegerValue 2, StringValue "Ed", StringValue "Dl"]
+stat = SelectStatement (SelectedColumns ["name","surname"]) "employees" (Comparison (Where "name" Equals "Vi") [(Or,Where "surname" Equals "As")])
+tableEmployees :: (TableName, DataFrame)
+tableEmployees =
+    ( "employees",
+    DataFrame
+        [Column "id" IntegerType, Column "name" StringType, Column "surname" StringType]
+        [ [IntegerValue 1, StringValue "Vi", StringValue "Po"],
+        [IntegerValue 2, StringValue "Ed", StringValue "Dl"],
+        [IntegerValue 3, StringValue "KN", StringValue "KS"],
+        [IntegerValue 4, StringValue "DN", StringValue "DS"],
+        [IntegerValue 5, StringValue "AN", StringValue "AS"]
+        ]
+    )
 ------------------------------VALUE FOR TESTS END------------------------------
---SELECT name FROM tableEmploees WHERE name = "vi"
 
-compareStrEqual :: String -> String -> Bool
-compareStrEqual [] [] = False
-compareStrEqual s1 s2 = if length s1 /= length s2 then False else checkByChar s1 s2
+-----------MIN SUM----------------------------------------------
+parseAggregateFunction :: String -> Either ErrorMessage (String, Condition) -- aka condition aggregation
+parseAggregateFunction = runParser parseAggregationStatement
+
+parseAggregationStatement :: Parser Condition
+parseAggregationStatement = do
+    aggregationFunction <- parseAggregateFunction'
+    _ <- parseWhitespace
+    columnName <- parseName
+    return (Aggregation aggregationFunction columnName)
+
+parseAggregateFunction' :: Parser AggregateFunction
+parseAggregateFunction' = parseMin <|> parseSum
   where
-    checkByChar :: String -> String -> Bool
-    checkByChar [] [] = True
-    checkByChar (x1:xs1) (x2:xs2) = if x1 == x2 then checkByChar xs1 xs2 else False
-
-compareStrNotEqual :: String -> String -> Bool
-compareStrNotEqual s1 s2 = not (compareStrEqual s1 s2)
-
-isFirstStrGreaterOrEqual :: String -> String -> Bool
-isFirstStrGreaterOrEqual [] [] = False
-isFirstStrGreaterOrEqual [] _ = False
-isFirstStrGreaterOrEqual _ [] = False
-isFirstStrGreaterOrEqual s1 s2 = s1 >= s2
-
-isFirstStrLessOrEqual :: String -> String -> Bool
-isFirstStrLessOrEqual [] [] = False
-isFirstStrLessOrEqual [] _ = False
-isFirstStrLessOrEqual _ [] = False
-isFirstStrLessOrEqual s1 s2 = s1 <= s2
-
-compareStrEqualWithColumn :: [Value] -> String -> [Value] --DOES NOT CHECK WHETHER [VALUE] IS STRING OR ANY OTHER TYPE, YOU MUST BE SURE THAT [Value] PARAMETER IS STRING!
-compareStrEqualWithColumn colVals str = filter (not . isNullValue) (fmap filterValues colVals)
-  where
-    filterValues :: Value -> Value
-    filterValues (StringValue s) = if compareStrEqual s str then StringValue s else NullValue 
-    filterValues _ = NullValue
-
-compareStrNotEqualWithColumn :: [Value] -> String -> [Value] --DOES NOT CHECK WHETHER [VALUE] IS STRING OR ANY OTHER TYPE, YOU MUST BE SURE THAT [Value] PARAMETER IS STRING!
-compareStrNotEqualWithColumn colVals str = filter (not . isNullValue) (fmap filterValues colVals)
-  where
-    filterValues :: Value -> Value
-    filterValues (StringValue s) = if compareStrNotEqual s str then StringValue s else NullValue 
-    filterValues _ = NullValue
-
-compareStrGreaterOrEqualWithColumn :: [Value] -> String -> [Value] --DOES NOT CHECK WHETHER [VALUE] IS STRING OR ANY OTHER TYPE, YOU MUST BE SURE THAT [Value] PARAMETER IS STRING!
-compareStrGreaterOrEqualWithColumn colVals str = filter (not . isNullValue) (fmap filterValues colVals)
-  where
-    filterValues :: Value -> Value
-    filterValues (StringValue s) = if isFirstStrGreaterOrEqual s str then StringValue s else NullValue 
-    filterValues _ = NullValue
-
-compareStrLessOrEqualWithColumn :: [Value] -> String -> [Value] --DOES NOT CHECK WHETHER [VALUE] IS STRING OR ANY OTHER TYPE, YOU MUST BE SURE THAT [Value] PARAMETER IS STRING!
-compareStrLessOrEqualWithColumn colVals str = filter (not.isNullValue) (fmap filterValues colVals)
-  where
-    filterValues :: Value -> Value
-    filterValues (StringValue s) = if isFirstStrLessOrEqual s str then StringValue s else NullValue 
-    filterValues _ = NullValue
-
-isNullValue :: Value -> Bool
-isNullValue NullValue = True
-isNullValue _ = False
-
-
-  
-
+    parseMin = parseKeyword "MIN" >> pure Min
+    parseSum = parseKeyword "SUM" >> pure Sum
