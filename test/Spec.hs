@@ -36,12 +36,25 @@ main = hspec $ do
   describe "Lib1.renderDataFrameAsTable" $ do
     it "renders a table" $ do
       Lib1.renderDataFrameAsTable 100 (snd D.tableEmployees) `shouldSatisfy` not . null
+
+
   describe "Lib2.parseStatement" $ do
     it "handles SHOW TABLES string" $ do
       let parsed = Lib2.parseStatement "show tables"
       case parsed of
         Right statement -> statement `shouldBe` Lib2.ShowTablesStatement
         Left err -> expectationFailure $ "Parsing failed: " ++ err
+    it "handles SHOW TABLE given employee table" $ do
+      let parsed = Lib2.parseStatement "show table employees"
+      case parsed of
+        Right statement -> statement `shouldBe` Lib2.ShowTableStatement "employees"
+        Left err -> expectationFailure $ "parsing failure: " ++ err
+    it "return 'Not implemented: parseStatement' for an unknown statement" $ do
+      let parsed = Lib2.parseStatement "unknown statement"
+      case parsed of
+        Left err -> err `shouldBe` "Not implemented: parseStatement"
+        Right _ -> expectationFailure "Expected parsing failure, but returned valid statement"
+  
   describe "Lib2.executeStatement" $ do
     it "handles SHOW TABLES statement" $ do
       let result = Lib2.executeStatement Lib2.ShowTablesStatement
@@ -53,4 +66,11 @@ main = hspec $ do
                         , [DataFrame.StringValue "flags"]
                         ]
       result `shouldBe` Right (DataFrame.DataFrame expectedColumns expectedRows)
-
+    it "handles showTableStatement" $ do
+      let result = Lib2.executeStatement (Lib2.ShowTableStatement "employees")
+      let expectedColumns = [DataFrame.Column "COLUMN NAMES" DataFrame.StringType]
+      let expectedRows =[ [DataFrame.StringValue "id"]
+                        , [DataFrame.StringValue "name"]
+                        , [DataFrame.StringValue "surname"]
+                        ]
+      result `shouldBe` Right (DataFrame.DataFrame expectedColumns expectedRows)

@@ -3,7 +3,7 @@
 module Lib2
   ( parseStatement,
     executeStatement,
-    ParsedStatement (ShowTablesStatement), -- Export the ShowTablesStatement constructor
+    ParsedStatement (ShowTablesStatement, ShowTableStatement), -- Export the ShowTablesStatement constructor 
   )
 where
 
