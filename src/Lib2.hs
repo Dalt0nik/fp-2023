@@ -1,6 +1,7 @@
 {-# OPTIONS_GHC -Wno-unused-top-binds #-}
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Redundant if" #-}
+{-# LANGUAGE InstanceSigs #-}
 
 module Lib2
   ( parseStatement,
