@@ -46,7 +46,7 @@ type ColumnName = String
 data ParsedStatement
   = ShowTablesStatement
   | ShowTableStatement TableName
-  | SelectStatement Columns TableName Condition deriving Show-- Condition
+  | SelectStatement Columns TableName (Maybe Condition) deriving Show-- Condition
 
 newtype Parser a = Parser {
     runParser :: String -> Either ErrorMessage (String, a)
@@ -117,8 +117,8 @@ parseFromClause input = do
     (rest, _) <- runParser (parseKeyword "FROM") input
     (rest',_) <- runParser parseWhitespace rest 
     (rest'', tableName) <- runParser parseName rest'
-    (rest''',_) <- runParser parseWhitespace rest''
-    return (rest''', tableName)
+    --(rest''',_) <- runParser parseWhitespace rest''
+    return (rest'', tableName)
 
 -- Parse the list of columns to select until it encounters "FROM" keyword use parseColumnListQuery function 
 -- or MIN SUM agregate functions (use parseAggregateFunction function)
@@ -178,11 +178,12 @@ findColumnIndex columns columnName = elemIndex columnName (map extractColumnName
 --     extractColumnName (Column name _) = name
 
 -- Filter rows based on the condition
-filterRows :: [Column] -> DataFrame -> Condition -> [Row]
+filterRows :: [Column] -> DataFrame -> Maybe Condition -> [Row]
 filterRows columns (DataFrame _ rows) condition = case condition of
-    Comparison whereStatement [] -> filter (evaluateWhereStatement whereStatement) rows
-    Comparison whereStatement logicalOps -> filter (evaluateWithLogicalOps whereStatement logicalOps) rows
-    Aggregation _ _ -> rows  -- No filtering needed for aggregation
+    Just (Comparison whereStatement []) -> filter (evaluateWhereStatement whereStatement) rows
+    Just (Comparison whereStatement logicalOps) -> filter (evaluateWithLogicalOps whereStatement logicalOps) rows
+    Just (Aggregation _ _) -> rows  -- No filtering needed for aggregation
+    Nothing -> rows  -- When condition is Nothing, return all rows
   where
     evaluateWhereStatement :: WhereAtomicStatement -> Row -> Bool
     evaluateWhereStatement (Where columnName op value) row = case op of
@@ -215,7 +216,7 @@ selectColumns allColumns (SelectedColumns colNames) =
 extractColumnName :: Column -> ColumnName
 extractColumnName (Column name _) = name
 
-statement3 = SelectStatement (SelectedColumns ["id", "name"]) "employees" (Comparison (Where "surname" Equals "Po") [(Or, Where "name" Equals "Ed")])
+--statement3 = SelectStatement (SelectedColumns ["id", "name"]) "employees" (Comparison (Where "surname" Equals "Po") [(Or, Where "name" Equals "Ed")])
 
 ------------------------------PARSERS (BEFORE WHERE CLAUSE)----------------------------
 parseName :: Parser String
@@ -291,35 +292,40 @@ parseQuotationMarks = do
   _ <- parseChar '\''
   return ""
 
-parseWhereStatement :: Parser Condition
-parseWhereStatement = do
-   _ <- parseKeyword "WHERE"
-   _ <- parseWhitespace
-   columnName <- parseName
-   _ <- parseWhitespace
-   condition <- parseOperator
-   _ <- parseWhitespace
-   _ <- parseQuotationMarks
-   conditionString <- parseName
-   _ <- parseQuotationMarks
-   otherConditions <- many $ do
-     _ <- parseWhitespace
-     logicalOp <- parseLogicalOp
-     _ <- parseWhitespace
-     columnName' <- parseName
-     _ <- parseWhitespace
-     condition' <- parseOperator
-     _ <- parseWhitespace
-     _ <- parseQuotationMarks
-     conditionString' <- parseName
-     _ <- parseQuotationMarks
-     return (logicalOp, Where columnName' condition' conditionString')
-   return $ Comparison (Where columnName condition conditionString) otherConditions
+parseWhereStatement :: Parser (Maybe Condition)
+parseWhereStatement = parseWithWhere <|> parseWithoutWhere
+  where
+    parseWithWhere = do
+       _ <- parseKeyword "WHERE"
+       _ <- parseWhitespace
+       columnName <- parseName
+       _ <- parseWhitespace
+       condition <- parseOperator
+       _ <- parseWhitespace
+       _ <- parseQuotationMarks
+       conditionString <- parseName
+       _ <- parseQuotationMarks
+       otherConditions <- many $ do
+         _ <- parseWhitespace
+         logicalOp <- parseLogicalOp
+         _ <- parseWhitespace
+         columnName' <- parseName
+         _ <- parseWhitespace
+         condition' <- parseOperator
+         _ <- parseWhitespace
+         _ <- parseQuotationMarks
+         conditionString' <- parseName
+         _ <- parseQuotationMarks
+         return (logicalOp, Where columnName' condition' conditionString)
+       return $ Just $ Comparison (Where columnName condition conditionString) otherConditions
 
-parseWhere :: String -> Either ErrorMessage (String, Condition)
+    parseWithoutWhere = pure Nothing
+
+
+parseWhere :: String -> Either ErrorMessage (String, Maybe Condition)
 parseWhere = runParser parseWhereStatement
 ------------------------------VALUE FOR TESTS START------------------------------
-stat = SelectStatement (SelectedColumns ["name","surname"]) "employees" (Comparison (Where "name" Equals "Vi") [(Or,Where "surname" Equals "As")])
+--stat = SelectStatement (SelectedColumns ["name","surname"]) "employees" (Comparison (Where "name" Equals "Vi") [(Or,Where "surname" Equals "As")])
 tableEmployees :: (TableName, DataFrame)
 tableEmployees =
     ( "employees",
