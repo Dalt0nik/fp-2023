@@ -318,7 +318,7 @@ parseWhereStatement = do
 parseWhere :: String -> Either ErrorMessage (String, Condition)
 parseWhere = runParser parseWhereStatement
 ------------------------------VALUE FOR TESTS START------------------------------
-stat = SelectStatement (SelectedColumns ["name","surname"]) "employees" (Comparison (Where "name" Equals "Vi") [(Or,Where "surname" Equals "As")])
+stat = SelectStatement (SelectedColumns ["name", "surname"]) "employees" (Comparison (Where "name" Equals "Vi") [(Or,Where "surname" Equals "AS")])
 tableEmployees :: (TableName, DataFrame)
 tableEmployees =
     ( "employees",
