@@ -1,7 +1,9 @@
 import Data.Either
 import Data.Maybe ()
 import InMemoryTables qualified as D
+import qualified DataFrame
 import Lib1
+import qualified Lib2
 import Test.Hspec
 
 main :: IO ()
@@ -34,3 +36,21 @@ main = hspec $ do
   describe "Lib1.renderDataFrameAsTable" $ do
     it "renders a table" $ do
       Lib1.renderDataFrameAsTable 100 (snd D.tableEmployees) `shouldSatisfy` not . null
+  describe "Lib2.parseStatement" $ do
+    it "handles SHOW TABLES string" $ do
+      let parsed = Lib2.parseStatement "show tables"
+      case parsed of
+        Right statement -> statement `shouldBe` Lib2.ShowTablesStatement
+        Left err -> expectationFailure $ "Parsing failed: " ++ err
+  describe "Lib2.executeStatement" $ do
+    it "handles SHOW TABLES statement" $ do
+      let result = Lib2.executeStatement Lib2.ShowTablesStatement
+      let expectedColumns = [DataFrame.Column "TABLE NAME" DataFrame.StringType]
+      let expectedRows = [ [DataFrame.StringValue "employees"]
+                        , [DataFrame.StringValue "invalid1"]
+                        , [DataFrame.StringValue "invalid2"]
+                        , [DataFrame.StringValue "long_strings"]
+                        , [DataFrame.StringValue "flags"]
+                        ]
+      result `shouldBe` Right (DataFrame.DataFrame expectedColumns expectedRows)
+

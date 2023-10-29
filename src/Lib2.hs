@@ -3,7 +3,7 @@
 module Lib2
   ( parseStatement,
     executeStatement,
-    ParsedStatement
+    ParsedStatement (ShowTablesStatement), -- Export the ShowTablesStatement constructor
   )
 where
 
@@ -38,7 +38,8 @@ data LogicalOp
 data ParsedStatement
   = ShowTablesStatement
   | ShowTableStatement TableName
-  | SelectStatement [Column] TableName Condition
+  deriving (Show, Eq)
+  -- | SelectStatement Columns TableName Condition deriving Show-- Condition
 
 -- Parses user input into an entity representing a parsed
 -- statement
