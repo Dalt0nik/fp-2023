@@ -46,7 +46,8 @@ type ColumnName = String
 data ParsedStatement
   = ShowTablesStatement
   | ShowTableStatement TableName
-  | SelectStatement Columns TableName Condition deriving Show-- Condition
+  | SelectStatement Columns TableName Condition 
+  | SelectStatementWithoutCondition Columns TableName deriving Show-- Condition
 
 newtype Parser a = Parser {
     runParser :: String -> Either ErrorMessage (String, a)
@@ -109,8 +110,11 @@ parseSelectQuery input = do
     (input', columns) <- parseColumnListQuery input
     (skip,_) <- runParser parseWhitespace input' 
     (input'', tableName) <- parseFromClause skip
-    (input''', conditions) <- parseWhere input''
-    return (SelectStatement columns tableName conditions)
+    if input'' == ""
+      then return (SelectStatementWithoutCondition columns tableName) 
+      else do
+          (input''', conditions) <- parseWhere input''
+          return (SelectStatement columns tableName conditions)
 
 parseFromClause :: String -> Either ErrorMessage (String, TableName)
 parseFromClause input = do
