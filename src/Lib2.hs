@@ -35,11 +35,12 @@ data LogicalOp = Or deriving Show
 data WhereAtomicStatement = Where ColumnName Operator String deriving Show
 
 data Condition
-  = Comparison WhereAtomicStatement [(LogicalOp, WhereAtomicStatement)] -- string aka column
-  | Aggregation AggregateFunction String deriving Show -- string aka column 
+  = Comparison WhereAtomicStatement [(LogicalOp, WhereAtomicStatement)] deriving Show -- string aka column
+  
 
 data Columns = All
-  | SelectedColumns [String] deriving Show
+  | SelectedColumns [String] 
+  | Aggregation [(AggregateFunction, String)] deriving Show -- string aka column 
 
 type ColumnName = String
 -- type TableName = String
@@ -109,18 +110,14 @@ parseSelectQuery input = do
     (input', columns) <- parseColumnListQuery input
     (skip,_) <- runParser parseWhitespace input' 
     (input'', tableName) <- parseFromClause skip
-    if input'' == ""
-      then return (SelectStatementWithoutCondition columns tableName) 
-      else do
-          (input''', conditions) <- parseWhere input''
-          return (SelectStatement columns tableName conditions)
+    (input''', conditions) <- parseWhere input''
+    return (SelectStatement columns tableName conditions)
 
 parseFromClause :: String -> Either ErrorMessage (String, TableName)
 parseFromClause input = do
     (rest, _) <- runParser (parseKeyword "FROM") input
     (rest',_) <- runParser parseWhitespace rest 
     (rest'', tableName) <- runParser parseName rest'
-    --(rest''',_) <- runParser parseWhitespace rest''
     return (rest'', tableName)
 
 -- Parse the list of columns to select until it encounters "FROM" keyword use parseColumnListQuery function 
@@ -185,7 +182,7 @@ filterRows :: [Column] -> DataFrame -> Maybe Condition -> [Row]
 filterRows columns (DataFrame _ rows) condition = case condition of
     Just (Comparison whereStatement []) -> filter (evaluateWhereStatement whereStatement) rows
     Just (Comparison whereStatement logicalOps) -> filter (evaluateWithLogicalOps whereStatement logicalOps) rows
-    Just (Aggregation _ _) -> rows  -- No filtering needed for aggregation
+    --Just (Aggregation _ _) -> rows  -- No filtering needed for aggregation
     Nothing -> rows  -- When condition is Nothing, return all rows
   where
     evaluateWhereStatement :: WhereAtomicStatement -> Row -> Bool
@@ -236,7 +233,7 @@ parseChar a = Parser $ \inp ->
 
 
 parseColumns :: Parser Columns
-parseColumns = parseAll <|> parseColumnList
+parseColumns = parseAll <|> parseAggregationStatement <|> parseColumnList
 
 parseAll :: Parser Columns
 parseAll = fmap (\_ -> All) $ parseChar '*'
@@ -327,32 +324,30 @@ parseWhereStatement = parseWithWhere <|> parseWithoutWhere
 
 parseWhere :: String -> Either ErrorMessage (String, Maybe Condition)
 parseWhere = runParser parseWhereStatement
-------------------------------VALUE FOR TESTS START------------------------------
---stat = SelectStatement (SelectedColumns ["name","surname"]) "employees" (Comparison (Where "name" Equals "Vi") [(Or,Where "surname" Equals "As")])
-tableEmployees :: (TableName, DataFrame)
-tableEmployees =
-    ( "employees",
-    DataFrame
-        [Column "id" IntegerType, Column "name" StringType, Column "surname" StringType]
-        [ [IntegerValue 1, StringValue "Vi", StringValue "Po"],
-        [IntegerValue 2, StringValue "Ed", StringValue "Dl"],
-        [IntegerValue 3, StringValue "KN", StringValue "KS"],
-        [IntegerValue 4, StringValue "DN", StringValue "DS"],
-        [IntegerValue 5, StringValue "AN", StringValue "AS"]
-        ]
-    )
-------------------------------VALUE FOR TESTS END------------------------------
 
 -----------MIN SUM----------------------------------------------
-parseAggregateFunction :: String -> Either ErrorMessage (String, Condition) -- aka condition aggregation
+parseAggregateFunction :: String -> Either ErrorMessage (String, Columns) -- aka condition aggregation
 parseAggregateFunction = runParser parseAggregationStatement
 
-parseAggregationStatement :: Parser Condition
+parseAggregationStatement :: Parser Columns
 parseAggregationStatement = do
     aggregationFunction <- parseAggregateFunction'
-    _ <- parseWhitespace
+    _ <- parseChar '('
     columnName <- parseName
-    return (Aggregation aggregationFunction columnName)
+    _ <- parseChar ')'
+    other <- many parseCSAggregateFunction
+    return $ Aggregation ((aggregationFunction, columnName):other)
+
+parseCSAggregateFunction :: Parser (AggregateFunction, ColumnName)
+parseCSAggregateFunction = do
+    _ <- many $ parseChar ' ' --many means that can be zero or more ' ' chars
+    _ <- parseChar ','
+    _ <- many $ parseChar ' '
+    aggregationFunction <- parseAggregateFunction'
+    _ <- parseChar '('
+    columnName <- parseName
+    _ <- parseChar ')'
+    return (aggregationFunction, columnName)
 
 parseAggregateFunction' :: Parser AggregateFunction
 parseAggregateFunction' = parseMin <|> parseSum
