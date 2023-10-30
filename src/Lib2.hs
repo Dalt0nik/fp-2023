@@ -96,7 +96,9 @@ instance Monad Parser where
 parseStatement :: String -> Either ErrorMessage ParsedStatement
 parseStatement input
   | map toLower input == "show tables" = Right ShowTablesStatement
-  -- | -- SHOW TABLE name parsing
+  | "show table" `isPrefixOf` map toLower input =
+    let tableName = drop 11  (map toLower input)
+      in Right  (ShowTableStatement tableName)
   | "select" `isPrefixOf` map toLower input = do
     --let restOfQuery = drop 7 (map toLower input) -- Remove "select " TODO DELETE ALL WHITESPACES
     (restOfQuery,_) <- runParser parseWhitespace $ drop 6 input 
@@ -158,6 +160,11 @@ executeStatement (SelectStatement columns tableName condition) = do
     let selectedRows = map (\row -> map (\i -> (row !! i)) selectedColumnIndexes) filteredRows
 
     return $ DataFrame selectedColumns selectedRows
+executeStatement ShowTablesStatement = Right $ DataFrame [Column "TABLE NAME" StringType] (map (\tableName -> [StringValue tableName]) (showTables database))
+executeStatement (ShowTableStatement tableName) =
+  case lookup (map toLower tableName) database of
+    Just (DataFrame columns _) -> Right $ DataFrame [Column "COLUMN NAMES" StringType] (map (\col -> [StringValue (extractColumnName col)]) columns)
+    Nothing -> Left (tableName ++ " not found")
 executeStatement _ = Left "Not implemented: executeStatement"
 
 
@@ -357,3 +364,12 @@ parseAggregateFunction' = parseMin <|> parseSum
   where
     parseMin = parseKeyword "MIN" >> pure Min
     parseSum = parseKeyword "SUM" >> pure Sum
+
+
+
+--used in ShowTables execution
+showTables :: Database -> [TableName]
+showTables db = map fst db
+
+extractColumnName :: Column -> String
+extractColumnName (Column name _) = name
