@@ -4,7 +4,7 @@ module Lessons.Lesson06 () where
 import Control.Applicative((<|>), empty, Alternative (some, many))
 
 import Data.Char(isAlphaNum, toLower)
-import DataFrame (Column(Column))
+--import DataFrame (Column(Column))
 import GHC.Conc (par)
 
 dn10 :: Maybe Int
@@ -54,7 +54,7 @@ instance Alternative Parser where
   empty = Parser $ \_ -> Left "Error"
   (<|>) :: Parser a -> Parser a -> Parser a
   p1 <|> p2 = Parser $ \inp ->
-    case (runParser p1) inp of
+    case runParser p1 inp of
         Right r1 -> Right r1
         Left _ -> case runParser p2 inp of
             Right r2 -> Right r2
