@@ -296,6 +296,7 @@ parseWhereStatement :: Parser (Maybe Condition)
 parseWhereStatement = parseWithWhere <|> parseWithoutWhere
   where
     parseWithWhere = do
+       _ <- many parseWhitespace
        _ <- parseKeyword "WHERE"
        _ <- parseWhitespace
        columnName <- parseName
@@ -333,7 +334,9 @@ parseAggregationStatement :: Parser Columns
 parseAggregationStatement = do
     aggregationFunction <- parseAggregateFunction'
     _ <- parseChar '('
+    _ <- many $ parseChar ' '
     columnName <- parseName
+    _ <- many $ parseChar ' '
     _ <- parseChar ')'
     other <- many parseCSAggregateFunction
     return $ Aggregation ((aggregationFunction, columnName):other)
