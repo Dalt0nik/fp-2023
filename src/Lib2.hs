@@ -220,8 +220,6 @@ selectColumns :: [Column] -> Columns -> [Column]
 selectColumns allColumns (SelectedColumns colNames) =
     filter (\col -> extractColumnName col `elem` colNames) allColumns
 
-extractColumnName :: Column -> ColumnName
-extractColumnName (Column name _) = name
 
 --statement3 = SelectStatement (SelectedColumns ["id", "name"]) "employees" (Comparison (Where "surname" Equals "Po") [(Or, Where "name" Equals "Ed")])
 
