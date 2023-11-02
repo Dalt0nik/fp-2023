@@ -122,22 +122,11 @@ parseFromClause input = do
     (rest'', tableName) <- runParser parseName rest'
     return (rest'', tableName)
 
--- Parse the list of columns to select until it encounters "FROM" keyword use parseColumnListQuery function 
--- or MIN SUM agregate functions (use parseAggregateFunction function)
-
--- Parse the "from" keyword
-
--- Parse the table name
-
--- Parse the conditions (if any) 
--- use (parseWhere function)
-
---return   Right (SelectStatement columns table conditions)
 
 -- Executes a parsed statemet. Produces a DataFrame. Uses
 -- InMemoryTables.databases a source of data.
 -- Execute a SELECT statement
-executeStatement :: ParsedStatement -> Either ErrorMessage DataFrame -- SHOW TABLE SHOULD BE ADDED!!!
+executeStatement :: ParsedStatement -> Either ErrorMessage DataFrame
 executeStatement (SelectStatement columns tableName condition) = do
     -- Fetch the specified table
     (tableKey, table) <- fetchTableFromDatabase tableName -- tableKey is tableName in lower case
@@ -145,27 +134,83 @@ executeStatement (SelectStatement columns tableName condition) = do
     -- Filter rows based on the condition
     let filteredRows = filterRows (getColumns table) table condition
 
-    -- Extract the selected column names from the Columns type
-    let selectedColumnNames = case columns of
-            All -> map extractColumnName (getColumns table)
-            SelectedColumns colNames -> colNames
+    -- Check if aggregation is requested
+    let isAggregationRequested = case columns of
+            Aggregation _ -> True
+            _ -> False
 
-    -- Get the indices of the selected columns
-    let selectedColumnIndexes = mapMaybe (\colName -> findColumnIndex (getColumns table) colName) selectedColumnNames
+    if isAggregationRequested
+        then do
+            let aggregationFunctions = case columns of
+                    Aggregation funcs -> funcs
+                    _ -> []
 
-    -- Select columns based on indices
-    let selectedColumns = map (\i -> (getColumns table) !! i) selectedColumnIndexes
+            -- Prepare a result row for aggregation
+            let resultRow = map (\(aggFunc, colName) -> executeAggregationFunction aggFunc (findColumnIndex (getColumns table) colName) filteredRows) aggregationFunctions
 
-    -- Extract only the selected values from each row
-    let selectedRows = map (\row -> map (\i -> (row !! i)) selectedColumnIndexes) filteredRows
+            -- Create a single-row DataFrame for the aggregation result
+            return $ DataFrame (createAggregationColumns aggregationFunctions) [resultRow]
+        else do
+            -- Extract the selected column names from the Columns type
+            let selectedColumnNames = case columns of
+                    All -> map extractColumnName (getColumns table)
+                    SelectedColumns colNames -> colNames
 
-    return $ DataFrame selectedColumns selectedRows
+            -- Get the indices of the selected columns
+            let selectedColumnIndexes = mapMaybe (\colName -> findColumnIndex (getColumns table) colName) selectedColumnNames
+
+            -- Select columns based on indices
+            let selectedColumns = map (\i -> (getColumns table) !! i) selectedColumnIndexes
+
+            -- Extract only the selected values from each row
+            let selectedRows = map (\row -> map (\i -> (row !! i)) selectedColumnIndexes) filteredRows
+
+            return $ DataFrame selectedColumns selectedRows
 executeStatement ShowTablesStatement = Right $ DataFrame [Column "TABLE NAME" StringType] (map (\tableName -> [StringValue tableName]) (showTables database))
 executeStatement (ShowTableStatement tableName) =
   case lookup (map toLower tableName) database of
     Just (DataFrame columns _) -> Right $ DataFrame [Column "COLUMN NAMES" StringType] (map (\col -> [StringValue (extractColumnName col)]) columns)
     Nothing -> Left (tableName ++ " not found")
 executeStatement _ = Left "Not implemented: executeStatement"
+
+-- Function to execute aggregation functions
+executeAggregationFunction :: AggregateFunction -> Maybe Int -> [Row] -> Value
+executeAggregationFunction Min (Just colIndex) rows =
+    let values = map (extractValueAtIndex colIndex) rows
+    in case minimumValue values of
+        Just result -> IntegerValue result
+        Nothing -> NullValue
+executeAggregationFunction Sum (Just colIndex) rows =
+    let values = map (extractValueAtIndex colIndex) rows
+    in case sumIntValues values of
+        Just result -> IntegerValue result
+        Nothing -> NullValue
+executeAggregationFunction _ _ _ = NullValue
+
+-- Helper function to find the minimum value from a list of Values
+minimumValue :: [Value] -> Maybe Integer
+minimumValue values =
+    case catMaybes [getIntValue value | value <- values] of
+        [] -> Nothing
+        ints -> Just (minimum ints)
+
+getIntValue :: Value -> Maybe Integer
+getIntValue (IntegerValue i) = Just i
+getIntValue _ = Nothing
+
+extractValueAtIndex :: Int -> Row -> Value
+extractValueAtIndex index row
+    | index >= 0 && index < length row = row !! index
+    | otherwise = NullValue
+
+sumIntValues :: [Value] -> Maybe Integer
+sumIntValues values =
+    let intValues = [i | IntegerValue i <- values]
+    in if null intValues then Nothing else Just (sum intValues)
+
+-- Create columns for aggregation result
+createAggregationColumns :: [(AggregateFunction, String)] -> [Column]
+createAggregationColumns funcs = map (\(aggFunc, colName) -> Column (show aggFunc ++ "(" ++ colName ++ ")") IntegerType) funcs
 
 
 -- Fetch a table from the database
@@ -180,16 +225,13 @@ getColumns (DataFrame columns _) = columns
 -- Find the index of a column by its name
 findColumnIndex :: [Column] -> ColumnName -> Maybe Int
 findColumnIndex columns columnName = elemIndex columnName (map extractColumnName columns)
---   where
---     extractColumnName :: Column -> ColumnName
---     extractColumnName (Column name _) = name
+
 
 -- Filter rows based on the condition
 filterRows :: [Column] -> DataFrame -> Maybe Condition -> [Row]
 filterRows columns (DataFrame _ rows) condition = case condition of
     Just (Comparison whereStatement []) -> filter (evaluateWhereStatement whereStatement) rows
     Just (Comparison whereStatement logicalOps) -> filter (evaluateWithLogicalOps whereStatement logicalOps) rows
-    --Just (Aggregation _ _) -> rows  -- No filtering needed for aggregation
     Nothing -> rows  -- When condition is Nothing, return all rows
   where
     evaluateWhereStatement :: WhereAtomicStatement -> Row -> Bool
@@ -220,8 +262,6 @@ selectColumns :: [Column] -> Columns -> [Column]
 selectColumns allColumns (SelectedColumns colNames) =
     filter (\col -> extractColumnName col `elem` colNames) allColumns
 
-
---statement3 = SelectStatement (SelectedColumns ["id", "name"]) "employees" (Comparison (Where "surname" Equals "Po") [(Or, Where "name" Equals "Ed")])
 
 ------------------------------PARSERS (BEFORE WHERE CLAUSE)----------------------------
 parseName :: Parser String
