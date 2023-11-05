@@ -3,14 +3,9 @@
 {-# HLINT ignore "Redundant if" #-}
 {-# LANGUAGE InstanceSigs #-}
 
-module Lib2
-  ( parseStatement,
-    executeStatement,
-    ParsedStatement
-  )
-where
+module Lib2 where
 
---import DataFrame (DataFrame)
+
 import DataFrame (DataFrame (..), Row, Column (..), ColumnType (..), Value (..))
 import InMemoryTables (TableName, database)
 import Control.Applicative((<|>), empty, Alternative (some, many))
@@ -23,31 +18,33 @@ type Database = [(TableName, DataFrame)]
 
 data AggregateFunction
   = Min
-  | Sum deriving Show
+  | Sum deriving (Show, Eq)
 
 data Operator = Equals
               | NotEquals
               | LessThanOrEqual
-              | GreaterThanOrEqual deriving Show
+              | GreaterThanOrEqual deriving (Show, Eq)
 
-data LogicalOp = Or deriving Show
+data LogicalOp = Or deriving (Show, Eq)
 
-data WhereAtomicStatement = Where ColumnName Operator String deriving Show
+data WhereAtomicStatement = Where ColumnName Operator String deriving (Show, Eq)
 
 data Condition
-  = Comparison WhereAtomicStatement [(LogicalOp, WhereAtomicStatement)] deriving Show -- string aka column
+  = Comparison WhereAtomicStatement [(LogicalOp, WhereAtomicStatement)] deriving (Show, Eq) -- string aka column
   
 
 data Columns = All
   | SelectedColumns [String] 
-  | Aggregation [(AggregateFunction, String)] deriving Show -- string aka column 
+  | Aggregation [(AggregateFunction, String)] deriving (Show, Eq) -- string aka column 
 
 type ColumnName = String
--- type TableName = String
+
 data ParsedStatement
   = ShowTablesStatement
   | ShowTableStatement TableName
-  | SelectStatement Columns TableName (Maybe Condition) deriving Show-- Condition
+  | SelectStatement Columns TableName (Maybe Condition) deriving (Show, Eq)-- Condition
+
+
 
 newtype Parser a = Parser {
     runParser :: String -> Either ErrorMessage (String, a)
@@ -94,17 +91,18 @@ instance Monad Parser where
 -- Parses user input into an entity representing a parsed
 -- statement
 parseStatement :: String -> Either ErrorMessage ParsedStatement
-parseStatement input
-  | map toLower input == "show tables" = Right ShowTablesStatement
-  | "show table" `isPrefixOf` map toLower input =
-    let tableName = drop 11  (map toLower input)
-      in Right  (ShowTableStatement tableName)
-  | "select" `isPrefixOf` map toLower input = do
-    --let restOfQuery = drop 7 (map toLower input) -- Remove "select " TODO DELETE ALL WHITESPACES
-    (restOfQuery,_) <- runParser parseWhitespace $ drop 6 input 
-    parsedQuery <- parseSelectQuery restOfQuery
-    return parsedQuery
-  | otherwise = Left "Not implemented: parseStatement"
+parseStatement input = do
+  let input' = map toLower (filter (not . isSpace) input)
+  case input' of
+    "showtables" -> Right ShowTablesStatement
+    _ | "showtable" `isPrefixOf` input' -> do
+        let tableName = drop 9 input'
+        Right (ShowTableStatement tableName)
+    _ | "select" `isPrefixOf` input' -> do
+        (restOfQuery,_) <- runParser parseWhitespace $ drop 6 input
+        parsedQuery <- parseSelectQuery restOfQuery
+        Right parsedQuery
+    _ -> Left "Not implemented: parseStatement"
 
 
 parseSelectQuery :: String -> Either ErrorMessage ParsedStatement
@@ -145,24 +143,19 @@ executeStatement (SelectStatement columns tableName condition) = do
                     Aggregation funcs -> funcs
                     _ -> []
 
-            -- Prepare a result row for aggregation
             let resultRow = map (\(aggFunc, colName) -> executeAggregationFunction aggFunc (findColumnIndex (getColumns table) colName) filteredRows) aggregationFunctions
 
-            -- Create a single-row DataFrame for the aggregation result
             return $ DataFrame (createAggregationColumns aggregationFunctions) [resultRow]
         else do
-            -- Extract the selected column names from the Columns type
+
             let selectedColumnNames = case columns of
                     All -> map extractColumnName (getColumns table)
                     SelectedColumns colNames -> colNames
 
-            -- Get the indices of the selected columns
             let selectedColumnIndexes = mapMaybe (\colName -> findColumnIndex (getColumns table) colName) selectedColumnNames
 
-            -- Select columns based on indices
             let selectedColumns = map (\i -> (getColumns table) !! i) selectedColumnIndexes
 
-            -- Extract only the selected values from each row
             let selectedRows = map (\row -> map (\i -> (row !! i)) selectedColumnIndexes) filteredRows
 
             return $ DataFrame selectedColumns selectedRows
