@@ -63,7 +63,7 @@ main = hspec $ do
             else expectationFailure $ "Expected 'Not implemented: parseStatement', but got: " ++ err
         Right _ -> expectationFailure "Expected parsing failure, but returned a valid statement"
   describe "Lib2.executeStatement" $ do
-    it "handles SHOW TABLES statement" $ do
+    it "handles \"SHOW TABLES\" statement" $ do
       let result = Lib2.executeStatement Lib2.ShowTablesStatement
       let expectedColumns = [DataFrame.Column "TABLE NAME" DataFrame.StringType]
       let expectedRows = [ [DataFrame.StringValue "employees"]
@@ -73,7 +73,7 @@ main = hspec $ do
                         , [DataFrame.StringValue "flags"]
                         ]
       result `shouldBe` Right (DataFrame.DataFrame expectedColumns expectedRows)
-    it "handles SHOW TABLE Statement" $ do
+    it "handles \"SHOW TABLE\" Statement" $ do
       let result = Lib2.executeStatement (Lib2.ShowTableStatement "employees")
       let expectedColumns = [DataFrame.Column "COLUMN NAMES" DataFrame.StringType]
       let expectedRows =[ [DataFrame.StringValue "id"]
@@ -82,8 +82,8 @@ main = hspec $ do
                         ]
       result `shouldBe` Right (DataFrame.DataFrame expectedColumns expectedRows)
 
-    it "handles 'SELECT name FROM employees' statement correctly" $ do
-      let result = Lib2.executeStatement (Lib2.ShowTableStatement "name FROM employees")
+    it "handles \"SELECT name FROM employees\" statement correctly" $ do
+      let result = Lib2.executeStatement (Lib2.SelectStatement (Lib2.SelectedColumns ["name"]) "employees" Nothing)
       let expectedColumns = [DataFrame.Column "name" DataFrame.StringType]
       let expectedRows = [ [DataFrame.StringValue "Vi"]
                         , [DataFrame.StringValue "Ed"]
@@ -92,7 +92,16 @@ main = hspec $ do
                         , [DataFrame.StringValue "AN"]
                          ]
       result `shouldBe` Right (DataFrame.DataFrame expectedColumns expectedRows)
-      
+
+    it "handles \"SELECT name, surname FROM employees WHERE name = 'Ed'\" statement correctly" $ do
+      let condition = Just $ Lib2.Comparison (Lib2.Where "name" Lib2.Equals "Ed") []
+      let result = Lib2.executeStatement (Lib2.SelectStatement (Lib2.SelectedColumns ["name", "surname"]) "employees" condition)
+      let expectedColumns = [ DataFrame.Column "name" DataFrame.StringType
+                            , DataFrame.Column "surname" DataFrame.StringType
+                            ]
+      let expectedRows = [[DataFrame.StringValue "Ed", DataFrame.StringValue "Dl"]]
+      result `shouldBe` Right (DataFrame.DataFrame expectedColumns expectedRows)
+
     -- it "handles SHOW TABLE flags statement" $ do
     --   let result = Lib2.executeStatement (Lib2.ShowTableStatement "flags")
     --   let expectedColumns = [DataFrame.Column "COLUMN NAMES" DataFrame.StringType]
@@ -101,7 +110,7 @@ main = hspec $ do
     --                     ]
     --   result `shouldBe` Right (DataFrame.DataFrame expectedColumns expectedRows)
 
-  
+
   
   describe "fetchTableFromDatabase" $ do
     it "fetches an existing table from the database" $ do
@@ -146,9 +155,6 @@ main = hspec $ do
   --     let input = "WHERE column1 = 'value1' OR column2 <> 'value2'"
   --     Lib2.parseWhereStatement input `shouldSatisfy` isRight -- A more detailed assertion can be added based on the structure of Condition
 
-
-
-
   describe "parseWhere" $ do
     it "parses valid WHERE clause" $ do
       let input = "WHERE column1 = 'value1'"
@@ -160,8 +166,6 @@ main = hspec $ do
     it "extracts column name from Column data structure" $ do
       let col = DataFrame.Column "name" DataFrame.StringType
       Lib2.extractColumnName col `shouldBe` "name"
-
-
 
   -- describe "parseAggregateFunction" $ do
   --   it "parses MIN aggregation function" $ do

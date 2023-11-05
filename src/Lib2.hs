@@ -40,6 +40,8 @@ module Lib2
     Operator(..),
     AggregateFunction(..),
     Columns(..),
+    Condition(..),
+    WhereAtomicStatement(..),
   )
 where
 
