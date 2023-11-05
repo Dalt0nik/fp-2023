@@ -54,12 +54,12 @@ main = hspec $ do
         let expectedOutput = Right (Lib2.SelectStatement (Lib2.SelectedColumns ["name"]) "employees" Nothing)
         Lib2.parseStatement input `shouldBe` expectedOutput
       it "Parses SELECT statement with single Condition" $ do
-        let input = "select name from employees where name = 'Vi' and surname = 'AS'"
+        let input = "select name from employees where name = 'Vi'"
         let expectedOutput = Right (Lib2.SelectStatement (Lib2.SelectedColumns ["name"]) "employees" (Just (Lib2.Comparison (Lib2.Where "name" Lib2.Equals "Vi") [])))
         Lib2.parseStatement input `shouldBe` expectedOutput
       it "Parses SELECT statement with multiple Conditions" $ do
-        let input = "select name from employees where name = 'Vi'"
-        let expectedOutput = Right (Lib2.SelectStatement (Lib2.SelectedColumns ["name"]) "employees" (Just (Lib2.Comparison (Lib2.Where "name" Lib2.Equals "Vi") [])))
+        let input = "select name from employees where name = 'Vi' OR surname = 'AS'"
+        let expectedOutput = Right (Lib2.SelectStatement (Lib2.SelectedColumns ["name"]) "employees" (Just (Lib2.Comparison (Lib2.Where "name" Lib2.Equals "Vi") [(Lib2.Or, Lib2.Where "surname" Lib2.Equals "AS")])))
         Lib2.parseStatement input `shouldBe` expectedOutput
       it "Parses SELECT statement with aggregation function" $ do
         let input = Lib2.parseStatement "SELECT SUM(id) from table"
@@ -126,6 +126,16 @@ main = hspec $ do
                               ]
         let expectedRows = [[DataFrame.StringValue "Ed", DataFrame.StringValue "Dl"]]
         result `shouldBe` Right (DataFrame.DataFrame expectedColumns expectedRows)
+
+      it "Handles SelectStatement with single column without Condition" $ do
+        let inputStatement = Lib2.SelectStatement Lib2.All "employees" (Just (Lib2.Comparison (Lib2.Where "name" Lib2.Equals "Vi") [(Lib2.Or, Lib2.Where "name" Lib2.Equals "KN")]))
+        let expectedColumns = [DataFrame.Column "id" DataFrame.IntegerType, DataFrame.Column "name" DataFrame.StringType, DataFrame.Column "surname" DataFrame.StringType]
+        let expectedRows = [ [DataFrame.IntegerValue 1, DataFrame.StringValue "Vi", DataFrame.StringValue "Po"]
+                            ,[DataFrame.IntegerValue 3, DataFrame.StringValue "KN", DataFrame.StringValue "KS"]
+                          ]
+        let expectedOutput = Right (DataFrame.DataFrame expectedColumns expectedRows)
+        let result = Lib2.executeStatement inputStatement
+        result `shouldBe` expectedOutput
 
       it "Handles SelectStatement with SUM aggregation" $ do
         let inputStatement = Lib2.SelectStatement (Lib2.Aggregation [(Lib2.Sum, "id")]) "employees" Nothing

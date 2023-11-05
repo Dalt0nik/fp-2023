@@ -352,7 +352,7 @@ parseWhereStatement = parseWithWhere <|> parseWithoutWhere
          _ <- parseQuotationMarks
          conditionString' <- parseName
          _ <- parseQuotationMarks
-         return (logicalOp, Where columnName' condition' conditionString)
+         return (logicalOp, Where columnName' condition' conditionString')
        return $ Just $ Comparison (Where columnName condition conditionString) otherConditions
 
     parseWithoutWhere = pure Nothing
