@@ -123,7 +123,7 @@ parseFromClause input = do
     return (rest'', tableName)
 
 
--- Executes a parsed statemet. Produces a DataFrame. Uses
+-- Executes a parsed statement. Produces a DataFrame. Uses
 -- InMemoryTables.databases a source of data.
 -- Execute a SELECT statement
 executeStatement :: ParsedStatement -> Either ErrorMessage DataFrame
@@ -208,12 +208,10 @@ sumIntValues values =
     let intValues = [i | IntegerValue i <- values]
     in if null intValues then Nothing else Just (sum intValues)
 
--- Create columns for aggregation result
 createAggregationColumns :: [(AggregateFunction, String)] -> [Column]
 createAggregationColumns funcs = map (\(aggFunc, colName) -> Column (show aggFunc ++ "(" ++ colName ++ ")") IntegerType) funcs
 
 
--- Fetch a table from the database
 fetchTableFromDatabase :: TableName -> Either ErrorMessage (TableName, DataFrame)
 fetchTableFromDatabase tableName = case lookup (map toLower tableName) database of
     Just table -> Right (map toLower tableName, table)
@@ -222,12 +220,11 @@ fetchTableFromDatabase tableName = case lookup (map toLower tableName) database 
 getColumns :: DataFrame -> [Column]
 getColumns (DataFrame columns _) = columns
 
--- Find the index of a column by its name
+
 findColumnIndex :: [Column] -> ColumnName -> Maybe Int
 findColumnIndex columns columnName = elemIndex columnName (map extractColumnName columns)
 
 
--- Filter rows based on the condition
 filterRows :: [Column] -> DataFrame -> Maybe Condition -> [Row]
 filterRows columns (DataFrame _ rows) condition = case condition of
     Just (Comparison whereStatement []) -> filter (evaluateWhereStatement whereStatement) rows
