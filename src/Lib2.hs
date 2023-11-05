@@ -3,49 +3,9 @@
 {-# HLINT ignore "Redundant if" #-}
 {-# LANGUAGE InstanceSigs #-}
 
-module Lib2
-  ( parseStatement,
-    executeStatement,
-    ParsedStatement (..), -- Export the ShowTablesStatement constructor 
-    selectColumns,
-    parseSelectQuery,
-    parseFromClause,
-    fetchTableFromDatabase,
-    getColumns,
-    findColumnIndex,
-    filterRows,
-    dataFrameColumns,
-    selectColumns,
-    parseName,
-    parseChar,
-    parseColumns,
-    parseAll,
-    parseColumnList,
-    parseCSName,
-    parseColumnListQuery,
-    parseKeyword,
-    parseLogicalOp,
-    parseOperator,
-    parseWhitespace,
-    parseQuotationMarks,
-    parseWhereStatement,
-    parseWhere,
-    parseAggregateFunction,
-    parseAggregationStatement,
-    parseCSAggregateFunction,
-    parseAggregateFunction,
-    showTables,
-    extractColumnName,
-    LogicalOp(..),
-    Operator(..),
-    AggregateFunction(..),
-    Columns(..),
-    Condition(..),
-    WhereAtomicStatement(..),
-  )
-where
+module Lib2 where
 
---import DataFrame (DataFrame)
+
 import DataFrame (DataFrame (..), Row, Column (..), ColumnType (..), Value (..))
 import InMemoryTables (TableName, database)
 import Control.Applicative((<|>), empty, Alternative (some, many))
@@ -78,7 +38,7 @@ data Columns = All
   | Aggregation [(AggregateFunction, String)] deriving (Show, Eq) -- string aka column 
 
 type ColumnName = String
--- type TableName = String
+
 data ParsedStatement
   = ShowTablesStatement
   | ShowTableStatement TableName
@@ -131,17 +91,18 @@ instance Monad Parser where
 -- Parses user input into an entity representing a parsed
 -- statement
 parseStatement :: String -> Either ErrorMessage ParsedStatement
-parseStatement input
-  | map toLower input == "show tables" = Right ShowTablesStatement
-  | "show table" `isPrefixOf` map toLower input =
-    let tableName = drop 11  (map toLower input)
-      in Right  (ShowTableStatement tableName)
-  | "select" `isPrefixOf` map toLower input = do
-    --let restOfQuery = drop 7 (map toLower input) -- Remove "select " TODO DELETE ALL WHITESPACES
-    (restOfQuery,_) <- runParser parseWhitespace $ drop 6 input 
-    parsedQuery <- parseSelectQuery restOfQuery
-    return parsedQuery
-  | otherwise = Left "Not implemented: parseStatement"
+parseStatement input = do
+  let input' = map toLower (filter (not . isSpace) input)
+  case input' of
+    "showtables" -> Right ShowTablesStatement
+    _ | "showtable" `isPrefixOf` input' -> do
+        let tableName = drop 9 input'
+        Right (ShowTableStatement tableName)
+    _ | "select" `isPrefixOf` input' -> do
+        (restOfQuery,_) <- runParser parseWhitespace $ drop 6 input
+        parsedQuery <- parseSelectQuery restOfQuery
+        Right parsedQuery
+    _ -> Left "Not implemented: parseStatement"
 
 
 parseSelectQuery :: String -> Either ErrorMessage ParsedStatement
@@ -248,9 +209,6 @@ filterRows columns (DataFrame _ rows) condition = case condition of
                 StringValue value -> value
                 _ -> ""
             Nothing -> ""
-
-dataFrameColumns :: DataFrame -> [Column]
-dataFrameColumns (DataFrame columns _) = columns
 
 -- Select columns
 selectColumns :: [Column] -> Columns -> [Column]
