@@ -58,31 +58,33 @@ type Database = [(TableName, DataFrame)]
 
 data AggregateFunction
   = Min
-  | Sum deriving Show
+  | Sum deriving (Show, Eq)
 
 data Operator = Equals
               | NotEquals
               | LessThanOrEqual
-              | GreaterThanOrEqual deriving Show
+              | GreaterThanOrEqual deriving (Show, Eq)
 
-data LogicalOp = Or deriving Show
+data LogicalOp = Or deriving (Show, Eq)
 
-data WhereAtomicStatement = Where ColumnName Operator String deriving Show
+data WhereAtomicStatement = Where ColumnName Operator String deriving (Show, Eq)
 
 data Condition
-  = Comparison WhereAtomicStatement [(LogicalOp, WhereAtomicStatement)] deriving Show -- string aka column
+  = Comparison WhereAtomicStatement [(LogicalOp, WhereAtomicStatement)] deriving (Show, Eq) -- string aka column
   
 
 data Columns = All
   | SelectedColumns [String] 
-  | Aggregation [(AggregateFunction, String)] deriving Show -- string aka column 
+  | Aggregation [(AggregateFunction, String)] deriving (Show, Eq) -- string aka column 
 
 type ColumnName = String
 -- type TableName = String
 data ParsedStatement
   = ShowTablesStatement
   | ShowTableStatement TableName
-  | SelectStatement Columns TableName (Maybe Condition) deriving Show-- Condition
+  | SelectStatement Columns TableName (Maybe Condition) deriving (Show, Eq)-- Condition
+
+
 
 newtype Parser a = Parser {
     runParser :: String -> Either ErrorMessage (String, a)

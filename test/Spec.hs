@@ -38,77 +38,101 @@ main = hspec $ do
       Lib1.renderDataFrameAsTable 100 (snd D.tableEmployees) `shouldSatisfy` not . null
   
   describe "Lib2.parseStatement" $ do
-    it "handles SHOW TABLES string" $ do
-      let parsed = Lib2.parseStatement "show tables"
-      case parsed of
-        Right statement ->
-          case statement of
-            Lib2.ShowTablesStatement -> return ()
-            _ -> expectationFailure "Expected ShowTablesStatement, but got a different statement"
-        Left err -> expectationFailure $ "Parsing failed: " ++ err
-    it "handles SHOW TABLE given employee table" $ do
-      let parsed = Lib2.parseStatement "show table employees"
-      case parsed of
-        Right statement ->
-          case statement of
-            Lib2.ShowTableStatement "employees" -> return ()
-            _ -> expectationFailure "Expected ShowTableStatement 'employees', but got a different statement"
-        Left err -> expectationFailure $ "Parsing failure: " ++ err
-    it "return 'Not implemented: parseStatement' for an unknown statement" $ do
-      let parsed = Lib2.parseStatement "unknown statement"
-      case parsed of
-        Left err ->
-          if err == "Not implemented: parseStatement"
-            then return ()
-            else expectationFailure $ "Expected 'Not implemented: parseStatement', but got: " ++ err
-        Right _ -> expectationFailure "Expected parsing failure, but returned a valid statement"
+    describe "ShowTables" $ do
+      it "Parses \"Show Tables\" with mixed-case and multiple spaces" $ do
+        let input = "show TABLES"
+        let expectedOutput = Right Lib2.ShowTablesStatement
+        Lib2.parseStatement input `shouldBe` expectedOutput
+    describe "ShowTableName" $ do
+      it "Parses \"Show Table <name>\" with mixed-case and multiple spaces" $ do
+          let input = Lib2.parseStatement "show taBLe employees"
+          let expectedOutput = Right (Lib2.ShowTableStatement "employees")
+          input `shouldBe` expectedOutput
+    describe "SELECT" $ do
+      it "Parses SELECT statement with single column (case insensitive and extra spaces)" $ do
+        let input = "SeLeCt  name      from  employees  "
+        let expectedOutput = Right (Lib2.SelectStatement (Lib2.SelectedColumns ["name"]) "employees" Nothing)
+        Lib2.parseStatement input `shouldBe` expectedOutput
+      it "Parses SELECT statement with single Condition" $ do
+        let input = "select name from employees where name = 'Vi' and surname = 'AS'"
+        let expectedOutput = Right (Lib2.SelectStatement (Lib2.SelectedColumns ["name"]) "employees" (Just (Lib2.Comparison (Lib2.Where "name" Lib2.Equals "Vi") [])))
+        Lib2.parseStatement input `shouldBe` expectedOutput
+      it "Parses SELECT statement with multiple Conditions" $ do
+        let input = "select name from employees where name = 'Vi'"
+        let expectedOutput = Right (Lib2.SelectStatement (Lib2.SelectedColumns ["name"]) "employees" (Just (Lib2.Comparison (Lib2.Where "name" Lib2.Equals "Vi") [])))
+        Lib2.parseStatement input `shouldBe` expectedOutput
+      it "Parses SELECT statement with aggregation function" $ do
+        let input = Lib2.parseStatement "SELECT SUM(id) from table"
+        let expectedOutput = Right (Lib2.SelectStatement (Lib2.Aggregation [(Lib2.Sum, "id")]) "table" Nothing)
+        input `shouldBe` expectedOutput
+      it "Parses SELECT statement with multiple aggregation functions" $ do
+        let input = "SELECT sum(id), min(id) FROM table"
+        let expectedOutput = Right (Lib2.SelectStatement (Lib2.Aggregation [(Lib2.Sum, "id"), (Lib2.Min, "id")]) "table" Nothing)
+        Lib2.parseStatement input `shouldBe` expectedOutput
+      it "Parses SELECT statement with aggregation function and Condition" $ do
+        let input = "SELECT sum(id) FROM tabe WHERE name <> 'a'"
+        let expectedOutput = Right (Lib2.SelectStatement (Lib2.Aggregation [(Lib2.Sum, "id")]) "tabe" (Just (Lib2.Comparison (Lib2.Where "name" Lib2.NotEquals "a") [])))
+        Lib2.parseStatement input `shouldBe` expectedOutput
+        
+    describe "Unknown string" $ do
+      it "Returns 'Not implemented: parseStatement' for an unknown statement" $ do
+        let parsed = Lib2.parseStatement "unknown statement"
+        case parsed of
+          Left err ->
+            if err == "Not implemented: parseStatement"
+              then return ()
+              else expectationFailure $ "Expected 'Not implemented: parseStatement', but got: " ++ err
+          Right _ -> expectationFailure "Expected parsing failure, but returned a valid statement"
+
+
   describe "Lib2.executeStatement" $ do
-    it "handles \"SHOW TABLES\" statement" $ do
-      let result = Lib2.executeStatement Lib2.ShowTablesStatement
-      let expectedColumns = [DataFrame.Column "TABLE NAME" DataFrame.StringType]
-      let expectedRows = [ [DataFrame.StringValue "employees"]
-                        , [DataFrame.StringValue "invalid1"]
-                        , [DataFrame.StringValue "invalid2"]
-                        , [DataFrame.StringValue "long_strings"]
-                        , [DataFrame.StringValue "flags"]
-                        ]
-      result `shouldBe` Right (DataFrame.DataFrame expectedColumns expectedRows)
-    it "handles \"SHOW TABLE\" Statement" $ do
-      let result = Lib2.executeStatement (Lib2.ShowTableStatement "employees")
-      let expectedColumns = [DataFrame.Column "COLUMN NAMES" DataFrame.StringType]
-      let expectedRows =[ [DataFrame.StringValue "id"]
-                        , [DataFrame.StringValue "name"]
-                        , [DataFrame.StringValue "surname"]
-                        ]
-      result `shouldBe` Right (DataFrame.DataFrame expectedColumns expectedRows)
+    describe "Lib2.executeStatement" $ do
+      it "handles \"SHOW TABLES\" statement" $ do
+        let result = Lib2.executeStatement Lib2.ShowTablesStatement
+        let expectedColumns = [DataFrame.Column "TABLE NAME" DataFrame.StringType]
+        let expectedRows = [ [DataFrame.StringValue "employees"]
+                          , [DataFrame.StringValue "invalid1"]
+                          , [DataFrame.StringValue "invalid2"]
+                          , [DataFrame.StringValue "long_strings"]
+                          , [DataFrame.StringValue "flags"]
+                          ]
+        result `shouldBe` Right (DataFrame.DataFrame expectedColumns expectedRows)
+      it "handles \"SHOW TABLE\" Statement" $ do
+        let result = Lib2.executeStatement (Lib2.ShowTableStatement "employees")
+        let expectedColumns = [DataFrame.Column "COLUMN NAMES" DataFrame.StringType]
+        let expectedRows =[ [DataFrame.StringValue "id"]
+                          , [DataFrame.StringValue "name"]
+                          , [DataFrame.StringValue "surname"]
+                          ]
+        result `shouldBe` Right (DataFrame.DataFrame expectedColumns expectedRows)
 
-    it "handles \"SELECT name FROM employees\" statement correctly" $ do
-      let result = Lib2.executeStatement (Lib2.SelectStatement (Lib2.SelectedColumns ["name"]) "employees" Nothing)
-      let expectedColumns = [DataFrame.Column "name" DataFrame.StringType]
-      let expectedRows = [ [DataFrame.StringValue "Vi"]
-                        , [DataFrame.StringValue "Ed"]
-                        , [DataFrame.StringValue "KN"]
-                        , [DataFrame.StringValue "DN"]
-                        , [DataFrame.StringValue "AN"]
-                         ]
-      result `shouldBe` Right (DataFrame.DataFrame expectedColumns expectedRows)
+      it "handles \"SELECT name FROM employees\" statement correctly" $ do
+        let result = Lib2.executeStatement (Lib2.SelectStatement (Lib2.SelectedColumns ["name"]) "employees" Nothing)
+        let expectedColumns = [DataFrame.Column "name" DataFrame.StringType]
+        let expectedRows = [ [DataFrame.StringValue "Vi"]
+                          , [DataFrame.StringValue "Ed"]
+                          , [DataFrame.StringValue "KN"]
+                          , [DataFrame.StringValue "DN"]
+                          , [DataFrame.StringValue "AN"]
+                          ]
+        result `shouldBe` Right (DataFrame.DataFrame expectedColumns expectedRows)
 
-    it "handles \"SELECT name, surname FROM employees WHERE name = 'Ed'\" statement correctly" $ do
-      let condition = Just $ Lib2.Comparison (Lib2.Where "name" Lib2.Equals "Ed") []
-      let result = Lib2.executeStatement (Lib2.SelectStatement (Lib2.SelectedColumns ["name", "surname"]) "employees" condition)
-      let expectedColumns = [ DataFrame.Column "name" DataFrame.StringType
-                            , DataFrame.Column "surname" DataFrame.StringType
-                            ]
-      let expectedRows = [[DataFrame.StringValue "Ed", DataFrame.StringValue "Dl"]]
-      result `shouldBe` Right (DataFrame.DataFrame expectedColumns expectedRows)
+      it "handles \"SELECT name, surname FROM employees WHERE name = 'Ed'\" statement correctly" $ do
+        let condition = Just $ Lib2.Comparison (Lib2.Where "name" Lib2.Equals "Ed") []
+        let result = Lib2.executeStatement (Lib2.SelectStatement (Lib2.SelectedColumns ["name", "surname"]) "employees" condition)
+        let expectedColumns = [ DataFrame.Column "name" DataFrame.StringType
+                              , DataFrame.Column "surname" DataFrame.StringType
+                              ]
+        let expectedRows = [[DataFrame.StringValue "Ed", DataFrame.StringValue "Dl"]]
+        result `shouldBe` Right (DataFrame.DataFrame expectedColumns expectedRows)
 
-    -- it "handles SHOW TABLE flags statement" $ do
-    --   let result = Lib2.executeStatement (Lib2.ShowTableStatement "flags")
-    --   let expectedColumns = [DataFrame.Column "COLUMN NAMES" DataFrame.StringType]
-    --   let expectedRows = [ [DataFrame.StringValue "flag"]
-    --                     , [DataFrame.StringValue "value"]
-    --                     ]
-    --   result `shouldBe` Right (DataFrame.DataFrame expectedColumns expectedRows)
+      -- it "handles SHOW TABLE flags statement" $ do
+      --   let result = Lib2.executeStatement (Lib2.ShowTableStatement "flags")
+      --   let expectedColumns = [DataFrame.Column "COLUMN NAMES" DataFrame.StringType]
+      --   let expectedRows = [ [DataFrame.StringValue "flag"]
+      --                     , [DataFrame.StringValue "value"]
+      --                     ]
+      --   result `shouldBe` Right (DataFrame.DataFrame expectedColumns expectedRows)
 
 
   
