@@ -120,33 +120,6 @@ parseFromClause input = do
     (rest'', tableName) <- runParser parseName rest'
     return (rest'', tableName)
 
--- Parse the list of columns to select until it encounters "FROM" keyword use parseColumnListQuery function 
--- or MIN SUM agregate functions (use parseAggregateFunction function)
-
--- Parse the "from" keyword
-
--- Parse the table name
-
--- Parse the conditions (if any) 
--- use (parseWhere function)
-
---return   Right (SelectStatement columns table conditions)
-
-parseSelectQuery :: String -> Either ErrorMessage ParsedStatement
-parseSelectQuery input = do
-    (input', columns) <- parseColumnListQuery input
-    (skip,_) <- runParser parseWhitespace input' 
-    (input'', tableName) <- parseFromClause skip
-    (input''', conditions) <- parseWhere input''
-    return (SelectStatement columns tableName conditions)
-
-parseFromClause :: String -> Either ErrorMessage (String, TableName)
-parseFromClause input = do
-    (rest, _) <- runParser (parseKeyword "FROM") input
-    (rest',_) <- runParser parseWhitespace rest 
-    (rest'', tableName) <- runParser parseName rest'
-    return (rest'', tableName)
-
 
 -- Executes a parsed statement. Produces a DataFrame. Uses
 -- InMemoryTables.databases a source of data.
@@ -170,24 +143,19 @@ executeStatement (SelectStatement columns tableName condition) = do
                     Aggregation funcs -> funcs
                     _ -> []
 
-            -- Prepare a result row for aggregation
             let resultRow = map (\(aggFunc, colName) -> executeAggregationFunction aggFunc (findColumnIndex (getColumns table) colName) filteredRows) aggregationFunctions
 
-            -- Create a single-row DataFrame for the aggregation result
             return $ DataFrame (createAggregationColumns aggregationFunctions) [resultRow]
         else do
-            -- Extract the selected column names from the Columns type
+
             let selectedColumnNames = case columns of
                     All -> map extractColumnName (getColumns table)
                     SelectedColumns colNames -> colNames
 
-            -- Get the indices of the selected columns
             let selectedColumnIndexes = mapMaybe (\colName -> findColumnIndex (getColumns table) colName) selectedColumnNames
 
-            -- Select columns based on indices
             let selectedColumns = map (\i -> (getColumns table) !! i) selectedColumnIndexes
 
-            -- Extract only the selected values from each row
             let selectedRows = map (\row -> map (\i -> (row !! i)) selectedColumnIndexes) filteredRows
 
             return $ DataFrame selectedColumns selectedRows
