@@ -34,3 +34,12 @@ main = hspec $ do
   describe "Lib1.renderDataFrameAsTable" $ do
     it "renders a table" $ do
       Lib1.renderDataFrameAsTable 100 (snd D.tableEmployees) `shouldSatisfy` not . null
+describe "Executes" $ do
+  it "Executes aggregation function" $ do
+
+describe "executeStatement" $ do
+  it "Executes SELECT statement with SUM aggregation" $ do
+    let inputStatement = Lib2.SelectStatement (Lib2.Aggregation [(Lib2.Sum, "id")]) "employees" Nothing
+    let expectedOutput = Right (DataFrame [DataFrame.Column "Sum(id)" DataFrame.IntegerType] [[DataFrame.IntegerValue 15]])
+    let result = Lib2.executeStatement inputStatement
+    result `shouldBe` expectedOutput
