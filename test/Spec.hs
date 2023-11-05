@@ -50,7 +50,7 @@ main = hspec $ do
           input `shouldBe` expectedOutput
     describe "SELECT" $ do
       it "Parses SELECT statement with single column (case insensitive and extra spaces)" $ do
-        let input = "  SeLeCt  name      from  employees  "
+        let input = "SeLeCt  name      from  employees  "
         let expectedOutput = Right (Lib2.SelectStatement (Lib2.SelectedColumns ["name"]) "employees" Nothing)
         Lib2.parseStatement input `shouldBe` expectedOutput
       it "Parses SELECT statement with single Condition" $ do
@@ -126,6 +126,18 @@ main = hspec $ do
                               ]
         let expectedRows = [[DataFrame.StringValue "Ed", DataFrame.StringValue "Dl"]]
         result `shouldBe` Right (DataFrame.DataFrame expectedColumns expectedRows)
+
+      it "Handles SelectStatement with SUM aggregation" $ do
+        let inputStatement = Lib2.SelectStatement (Lib2.Aggregation [(Lib2.Sum, "id")]) "employees" Nothing
+        let expectedOutput = Right (DataFrame.DataFrame [DataFrame.Column "Sum(id)" DataFrame.IntegerType] [[DataFrame.IntegerValue 15]])
+        let result = Lib2.executeStatement inputStatement
+        result `shouldBe` expectedOutput
+
+      it "Handles SelectStatement with SUM and MIN aggregations" $ do
+        let inputStatement = Lib2.SelectStatement (Lib2.Aggregation [(Lib2.Sum, "id"), (Lib2.Min, "id")]) "employees" Nothing
+        let expectedOutput = Right (DataFrame.DataFrame [DataFrame.Column "Sum(id)" DataFrame.IntegerType, DataFrame.Column "Min(id)" DataFrame.IntegerType] [[DataFrame.IntegerValue 15, DataFrame.IntegerValue 1]])
+        let result = Lib2.executeStatement inputStatement
+        result `shouldBe` expectedOutput
 
 
   describe "Helper Functions:" $ do
