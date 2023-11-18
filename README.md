@@ -41,6 +41,28 @@ Run your application: `stack run fp2023-select-more`
 
 Add more and run tests: `stack test`
 
+### Our requirements for SELECT:
+
+ - column list:
+   - Parse and recognize column names in a given query.
+   - Return the specified columns from the table in the result.
+   - Ensure provided column names exist in the table.
+ - min:
+   - Parse the MIN aggregate function.
+   - Return the smallest value in the specified column.
+   - Ensure that only integers, bools, and strings are processed.
+ - sum:
+   - Parse the SUM aggregate function.
+   - Return the sum of all values in the specified column.
+   - Ensure that integers are processed.
+ - where OR:
+   - Parse multiple conditions combined using OR.
+   - Include rows in the result if any of the conditions combined with OR are met.
+   - Aggregate functions can be applied to the results ( MIN, MAX, etc.)
+ - where str =/<>/<=/>=:
+   - Parse conditions for strings.
+   - Implement string comparisons (=, <> or !=, <=, >=).
+
 # Task 3
 
 Please edit [Lib3](src/Lib3.hs) and [Main](app3/Main.hs) modules. You can add libraries to [package.yaml](package.yaml).
