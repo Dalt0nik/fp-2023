@@ -70,3 +70,14 @@ Please edit [Lib3](src/Lib3.hs) and [Main](app3/Main.hs) modules. You can add li
 Run your application: `stack run fp2023-manipulate`
 
 Add more and run tests: `stack test`
+
+### Requirements:
+
+ - You have to support "SELECT" statement from multiple tables, so tables might be joined in WHERE clause
+ - Support "NOW()" function which return current time.
+ - You have to support "UPDATE", "INSERT" and "DELETE" statements which mutate tables data - your tables become writable!
+ - You have to read/save tables data from/in file system. You will be informed about your data serializations format when you pass Task2. But you can always ask by dropping an email.
+ - Please use "db" directory to store data files. You have to implement data serialization (write) by yourselves. You have to use an already existing haskell library to parse (read) serialized data. You can have a single file in "db" directory, you can have file-per-table - you choose.
+ - You do not create new tables in this task, so "CREATE" statements is not needed. You can ship a prepopulated "db" directory with all metada (table names, column names, column types) in data files.
+ - You have to implement query execution business logics in DSL based on Free Monad. You have to implement two interpreters: a) "production" one, which reads files from file system and b) "test" one which you use in tests and keeps all data in memory.
+ - Reuse Lib1 and Lib2 as much as you can. 
