@@ -4,7 +4,7 @@ module Lib3
   ( executeSql,
     Execution,
     ExecutionAlgebra(..),
-    showTable,
+    --showTable,
     findTableByName
   )
 where
@@ -23,7 +23,7 @@ data ExecutionAlgebra next
   = LoadFile TableName (FileContent -> next)
   | GetCurrentTime (UTCTime -> next)
   | NowStatement next
-  | ShowTable TableName (DataFrame -> next)
+  -- | ShowTable TableName (DataFrame -> next)
   | FindTableByName TableName (Either ErrorMessage DataFrame -> next)
   deriving Functor
 
@@ -38,8 +38,8 @@ getCurrentTime = liftF $ GetCurrentTime id
 nowStatement :: Execution ()
 nowStatement = liftF $ NowStatement ()
 
-showTable :: TableName -> (DataFrame -> a) -> Execution a
-showTable tableName f = liftF $ ShowTable tableName f
+-- showTable :: TableName -> (DataFrame -> a) -> Execution a
+-- showTable tableName f = liftF $ ShowTable tableName f
 
 findTableByName :: TableName -> Execution (Either ErrorMessage DataFrame)
 findTableByName tableName = case fetchTableFromDatabase tableName of
@@ -55,8 +55,8 @@ executeSql sql =
         let column = Column "time" StringType
             value = StringValue (show currentTime)
         return $ Right $ DataFrame [column] [[value]]
-    ["showTable", tableName] -> do
-        showTable tableName return
+    -- ["showTable", tableName] -> do
+    --     showTable tableName return
     ["findTable", tableName] -> do
         findTableByName tableName
     _ -> return $ Left "Unknown command"
