@@ -9,6 +9,7 @@ import Data.List qualified as L
 import Lib1 qualified
 import Lib2 qualified
 import Lib3 qualified
+import DataFrame (DataFrame (..), Row, Column (..), ColumnType (..), Value (..))
 import System.Console.Repline
   ( CompleterStyle (Word),
     ExitDecision (Exit),
@@ -65,4 +66,16 @@ runExecuteIO (Free step) = do
     where
         -- probably you will want to extend the interpreter
         runStep :: Lib3.ExecutionAlgebra a -> IO a
-        runStep (Lib3.GetTime next) = getCurrentTime >>= return . next
+        runStep (Lib3.GetCurrentTime next) = getCurrentTime >>= return . next
+        runStep (Lib3.NowStatement next) = return next
+        runStep (Lib3.FindTableByName tableN f) = do
+          tableResult <- runExecuteIO $ Lib3.findTableByName tableN
+          return $ f tableResult
+        runStep (Lib3.ShowTable tableName f) = do
+          dfResult <- runExecuteIO $ Lib3.findTableByName tableName
+          case dfResult of
+            Right table -> return $ f table
+            Left errMsg -> do
+              putStrLn $ "Error: " ++ errMsg
+              return (f undefined)  -- or return next if you want to continue with the next step
+
