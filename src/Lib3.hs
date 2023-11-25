@@ -4,8 +4,7 @@ module Lib3
   ( executeSql,
     Execution,
     ExecutionAlgebra(..),
-    --showTable,
-    findTableByName
+    showTable
   )
 where
 
@@ -14,6 +13,7 @@ import DataFrame (DataFrame (..), Row, Column (..), ColumnType (..), Value (..))
 import Data.Time ( UTCTime )
 import InMemoryTables (database, TableName)
 import Data.Char
+import Lib2 qualified
 
 
 type FileContent = String
@@ -23,8 +23,7 @@ data ExecutionAlgebra next
   = LoadFile TableName (FileContent -> next)
   | GetCurrentTime (UTCTime -> next)
   | NowStatement next
-  -- | ShowTable TableName (DataFrame -> next)
-  | FindTableByName TableName (Either ErrorMessage DataFrame -> next)
+  | ShowTable TableName (Either ErrorMessage DataFrame -> next)
   deriving Functor
 
 type Execution = Free ExecutionAlgebra
@@ -38,11 +37,8 @@ getCurrentTime = liftF $ GetCurrentTime id
 nowStatement :: Execution ()
 nowStatement = liftF $ NowStatement ()
 
--- showTable :: TableName -> (DataFrame -> a) -> Execution a
--- showTable tableName f = liftF $ ShowTable tableName f
-
-findTableByName :: TableName -> Execution (Either ErrorMessage DataFrame)
-findTableByName tableName = case fetchTableFromDatabase tableName of
+showTable :: TableName -> Execution (Either ErrorMessage DataFrame)
+showTable tableName = case Lib2.fetchTableFromDatabase tableName of
   Right (_, table) -> return $ Right table
   Left errMsg -> return $ Left errMsg
 
@@ -55,15 +51,6 @@ executeSql sql =
         let column = Column "time" StringType
             value = StringValue (show currentTime)
         return $ Right $ DataFrame [column] [[value]]
-    -- ["showTable", tableName] -> do
-    --     showTable tableName return
-    ["findTable", tableName] -> do
-        findTableByName tableName
+    ["showTable", tableName] -> do
+        showTable tableName
     _ -> return $ Left "Unknown command"
-
-
-
-fetchTableFromDatabase :: TableName -> Either ErrorMessage (TableName, DataFrame)
-fetchTableFromDatabase tableName = case lookup (map toLower tableName) database of
-    Just table -> Right (map toLower tableName, table)
-    Nothing -> Left (tableName ++ " not found")

@@ -69,14 +69,7 @@ runExecuteIO (Free step) = do
         runStep :: Lib3.ExecutionAlgebra a -> IO a
         runStep (Lib3.GetCurrentTime next) = getCurrentTime >>= return . next
         runStep (Lib3.NowStatement next) = return next
-        runStep (Lib3.FindTableByName tableN f) = do
-          tableResult <- runExecuteIO $ Lib3.findTableByName tableN
+        runStep (Lib3.ShowTable tableName f) = do
+          tableResult <- runExecuteIO $ Lib3.showTable tableName
           return $ f tableResult
-        -- runStep (Lib3.ShowTable tableName f) = do
-        --   dfResult <- runExecuteIO $ Lib3.findTableByName tableName
-        --   case dfResult of
-        --     Right table -> return $ f table
-        --     Left errMsg -> do
-        --       putStrLn $ "Error: " ++ errMsg
-        --       return (f undefined)  -- or return next if you want to continue with the next step
 
