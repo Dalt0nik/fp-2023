@@ -68,8 +68,15 @@ runExecuteIO (Free step) = do
         -- probably you will want to extend the interpreter
         runStep :: Lib3.ExecutionAlgebra a -> IO a
         runStep (Lib3.GetCurrentTime next) = getCurrentTime >>= return . next
-        runStep (Lib3.NowStatement next) = return next
         runStep (Lib3.ShowTable tableName f) = do
           tableResult <- runExecuteIO $ Lib3.showTable tableName
           return $ f tableResult
+        runStep (Lib3.ParseStatement input next) = do
+          let parsedStatement = case Lib2.parseStatement input of
+                Right stmt -> stmt
+                Left err -> error ("Parsing error: " ++ err)  -- Errors don't work
+          return $ next parsedStatement
+        runStep (Lib3.ExecuteStatement statement next) = do
+          let executionResult = Lib2.executeStatement statement
+          return $ next executionResult
 
