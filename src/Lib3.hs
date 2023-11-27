@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE OverloadedStrings #-}
 module Lib3
   ( executeSql,
     Execution,
@@ -90,22 +91,87 @@ executeSql sql =
       parsedStatement <- parseStatement sql
       executeStatement parsedStatement
 
-data Player = Player {
-    health :: Int,
-    position :: (Int, Int),
-    name :: String,
-    friends :: [Player]
-} deriving (Generic, Show) 
+-- data Player = Player {
+--     health :: Int,
+--     position :: (Int, Int),
+--     name :: String,
+--     friends :: [Player]
+-- } deriving (Generic, Show) 
 
-instance ToJSON Player
+-- instance ToJSON Player
 
-instance FromJSON Player
+-- instance FromJSON Player where
+--   parseJSON = withObject "Player" $ \v ->
+--     Player
+--       <$> v .: "health"  
+--       <*> v .: "position"
+--       <*> v .: "name"
+--       <*> v .: "friends"
 
-save :: Player -> IO ()
-save player = BS.writeFile "player.json" (encode player)
+-- save :: Player -> IO ()
+-- save player = BS.writeFile "player.json" (encode player)
 
 
-load :: IO (Maybe Player)
-load = do
-  json <- BS.readFile "player.json"
-  return (decode json)
+-- load :: IO (Maybe Player)
+-- load = do
+--   json <- BS.readFile "player.json"
+--   return (decode json)
+
+data MyColumnType
+  = MyIntegerType
+  | MyStringType
+  | MyBoolType
+  deriving (Show, Eq, Generic)
+
+data MyColumn = MyColumn String MyColumnType
+  deriving (Show, Eq, Generic)
+
+data MyValue
+  = MyIntegerValue Integer
+  | MyStringValue String
+  | MyBoolValue Bool
+  | MyNullValue
+  deriving (Show, Eq, Generic)
+
+type MyRow = [MyValue]
+
+data MyDataFrame = MyDataFrame [MyColumn] [MyRow]
+  deriving (Show, Eq, Generic)
+
+-- Instances for ToJSON and FromJSON
+
+instance ToJSON MyColumnType
+instance FromJSON MyColumnType
+
+instance ToJSON MyColumn
+instance FromJSON MyColumn
+
+instance ToJSON MyValue
+instance FromJSON MyValue
+
+instance ToJSON MyDataFrame
+instance FromJSON MyDataFrame
+
+-- Example usage:
+
+exampleMyDataFrame :: MyDataFrame
+exampleMyDataFrame = MyDataFrame
+  [MyColumn "Name" MyStringType, MyColumn "Age" MyIntegerType, MyColumn "IsStudent" MyBoolType]
+  [ [MyStringValue "Alice", MyIntegerValue 25, MyBoolValue False]
+  , [MyStringValue "Bob", MyIntegerValue 30, MyBoolValue True]
+  , [MyStringValue "Charlie", MyIntegerValue 22, MyBoolValue True]
+  ]
+
+main :: IO ()
+main = do
+  -- Serialize to JSON
+  let jsonStr = encode exampleMyDataFrame
+  BS.writeFile "db/my_dataframe.json" jsonStr
+
+  -- Deserialize from JSON
+  let decodedMyDataFrame = case decode jsonStr :: Maybe MyDataFrame of
+        Just df -> df
+        Nothing -> error "Failed to decode JSON"
+
+  print decodedMyDataFrame
+
