@@ -58,7 +58,7 @@ data ExecutionAlgebra next
 
 
 loadFile :: TableName -> Execution FileContent
-loadFile name = liftF $ LoadFile name id
+loadFile name = liftF $ LoadFile name id --why id?
 
 getCurrentTime :: Execution UTCTime
 getCurrentTime = liftF $ GetCurrentTime id
