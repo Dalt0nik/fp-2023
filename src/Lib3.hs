@@ -1,5 +1,5 @@
 {-# LANGUAGE DeriveFunctor #-}
-
+{-# LANGUAGE DeriveGeneric #-}
 module Lib3
   ( executeSql,
     Execution,
@@ -14,7 +14,9 @@ import Data.Time ( UTCTime )
 import InMemoryTables (database, TableName)
 import Data.Char
 import Lib2 qualified
-
+import Data.Aeson 
+import GHC.Generics
+--import Data.ByteString.Lazy as BS
 
 type FileContent = String
 type ErrorMessage = String
@@ -49,7 +51,8 @@ data ParsedStatement
   | SelectStatement Columns TableName (Maybe Condition) deriving (Show, Eq)-- Condition
 
 data ExecutionAlgebra next
-  = LoadFile TableName (FileContent -> next)
+  = LoadFile TableName (FileContent -> next) -- deserialize table
+  | SaveTable (TableName, DataFrame) (()-> next) --serialize table
   | GetCurrentTime (UTCTime -> next)
   | ShowTable TableName (Either ErrorMessage DataFrame -> next)
   | ParseStatement String (Lib2.ParsedStatement -> next)
@@ -85,3 +88,14 @@ executeSql sql =
     _ -> do --Ошибки еще не работают, вылетает
       parsedStatement <- parseStatement sql
       executeStatement parsedStatement
+
+data Player = Player {
+    health :: Int,
+    position :: (Int, Int),
+    name :: String,
+    friends :: [Player]
+} deriving (Generic) 
+instance ToJSON Player
+
+--save :: Player -> IO ()
+--save player = BS.writeFile "player.json" (encode player)
