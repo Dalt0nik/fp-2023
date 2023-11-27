@@ -16,7 +16,7 @@ import Data.Char
 import Lib2 qualified
 import Data.Aeson 
 import GHC.Generics
---import Data.ByteString.Lazy as BS
+import Data.ByteString.Lazy as BS
 
 type FileContent = String
 type ErrorMessage = String
@@ -97,5 +97,5 @@ data Player = Player {
 } deriving (Generic) 
 instance ToJSON Player
 
---save :: Player -> IO ()
---save player = BS.writeFile "player.json" (encode player)
+save :: Player -> IO ()
+save player = BS.writeFile "player.json" (encode player)

@@ -43,6 +43,7 @@ library:
   - free
   - time
   - transformers
+  - bytestring
 
 executables:
   fp2023-select-all:
@@ -83,6 +84,7 @@ executables:
     - terminal-size
     - free
     - time
+    - bytestring
 
 tests:
   fp2023-test:
