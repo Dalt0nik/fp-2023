@@ -162,16 +162,25 @@ exampleMyDataFrame = MyDataFrame
   , [MyStringValue "Charlie", MyIntegerValue 22, MyBoolValue True]
   ]
 
+-- Save function
+save :: MyDataFrame -> FilePath -> IO () --mydataframe to dataframe and filepath to tablename
+save df filePath = do
+  let jsonStr = encode df
+  BS.writeFile filePath jsonStr
+
+-- Load function
+load :: FilePath -> IO MyDataFrame
+load filePath = do
+  jsonStr <- BS.readFile filePath
+  case decode jsonStr of
+    Just df -> return df
+    Nothing -> error "Failed to decode JSON"
+
 main :: IO ()
 main = do
-  -- Serialize to JSON
-  let jsonStr = encode exampleMyDataFrame
-  BS.writeFile "db/my_dataframe.json" jsonStr
+  save exampleMyDataFrame "db/my_dataframe.json"
 
-  -- Deserialize from JSON
-  let decodedMyDataFrame = case decode jsonStr :: Maybe MyDataFrame of
-        Just df -> df
-        Nothing -> error "Failed to decode JSON"
-
-  print decodedMyDataFrame
+  
+  loadedMyDataFrame <- load "db/my_dataframe.json" -- Load from JSON
+  print loadedMyDataFrame
 
