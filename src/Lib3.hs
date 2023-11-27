@@ -17,6 +17,7 @@ import Lib2 qualified
 import Data.Aeson 
 import GHC.Generics
 import Data.ByteString.Lazy as BS
+import GHC.RTS.Flags (ProfFlags(retainerSelector))
 
 type FileContent = String
 type ErrorMessage = String
@@ -94,8 +95,17 @@ data Player = Player {
     position :: (Int, Int),
     name :: String,
     friends :: [Player]
-} deriving (Generic) 
+} deriving (Generic, Show) 
+
 instance ToJSON Player
+
+instance FromJSON Player
 
 save :: Player -> IO ()
 save player = BS.writeFile "player.json" (encode player)
+
+
+load :: IO (Maybe Player)
+load = do
+  json <- BS.readFile "player.json"
+  return (decode json)
