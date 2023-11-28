@@ -1,5 +1,4 @@
 {-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Lib3
   ( executeSql,
@@ -13,12 +12,12 @@ import Control.Monad.Free (Free (..), liftF)
 import DataFrame (DataFrame (..), Row, Column (..), ColumnType (..), Value (..))
 import Data.Time ( UTCTime )
 import InMemoryTables (database, TableName, tableEmployees)
-import Data.Char
 import Lib2 qualified
 import Data.Aeson 
-import GHC.Generics
-import Data.ByteString.Lazy as BS
-import GHC.RTS.Flags (ProfFlags(retainerSelector))
+import qualified Data.ByteString.Lazy.Char8 as BSLC
+import Data.List (intercalate)
+import Data.Char
+
 
 type FileContent = String
 type ErrorMessage = String
@@ -91,75 +90,66 @@ executeSql sql =
       parsedStatement <- parseStatement sql
       executeStatement parsedStatement
 
--- data Player = Player {
---     health :: Int,
---     position :: (Int, Int),
---     name :: String,
---     friends :: [Player]
--- } deriving (Generic, Show) 
 
--- instance ToJSON Player
+---------SERIALISATION----DESERIALIZATION------------------
 
--- instance FromJSON Player where
---   parseJSON = withObject "Player" $ \v ->
---     Player
---       <$> v .: "health"  
---       <*> v .: "position"
---       <*> v .: "name"
---       <*> v .: "friends"
+-- Custom Serialization Functions
 
--- save :: Player -> IO ()
--- save player = BS.writeFile "player.json" (encode player)
+serializeColumnType :: ColumnType -> String
+serializeColumnType IntegerType = "\"IntegerType\""
+serializeColumnType StringType  = "\"StringType\""
+serializeColumnType BoolType    = "\"BoolType\""
 
+serializeColumn :: Column -> String
+serializeColumn (Column name colType) =
+  "[\"" ++ name ++ "\", " ++ serializeColumnType colType ++ "]"
 
--- load :: IO (Maybe Player)
--- load = do
---   json <- BS.readFile "player.json"
---   return (decode json)
+serializeValue :: DataFrame.Value -> String
+serializeValue (IntegerValue intVal) = "{\"contents\":" ++ show intVal ++ ",\"tag\":\"IntegerValue\"}"
+serializeValue (StringValue strVal)  = "{\"contents\":\"" ++ strVal ++ "\",\"tag\":\"StringValue\"}"
+serializeValue (BoolValue boolVal)   = "{\"contents\":" ++ map toLower (show boolVal) ++ ",\"tag\":\"BoolValue\"}"
+serializeValue NullValue              = "null"
 
+serializeRow :: Row -> String
+serializeRow row = "[" ++ Data.List.intercalate ", " (Prelude.map serializeValue row) ++ "]"
 
--- Instances for ToJSON and FromJSON
-instance ToJSON ColumnType
+serializeDataFrame :: DataFrame -> String
+serializeDataFrame (DataFrame columns rows) =
+  "[[ " ++ Data.List.intercalate ", " (Prelude.map serializeColumn columns) ++ " ], " ++
+  "[ " ++ Data.List.intercalate ", " (Prelude.map serializeRow rows) ++ " ]]"
+
+-- Deserialization Instances
+--instance ToJSON we nee if we want to use aeson encode function. so it's kinda our backup plan if something goes wrong
 instance FromJSON ColumnType
+--instance ToJSON ColumnType
 
-instance ToJSON Column
 instance FromJSON Column
+--instance ToJSON Column
 
-instance ToJSON DataFrame.Value
 instance FromJSON DataFrame.Value
+--instance ToJSON DataFrame.Value
 
-instance ToJSON DataFrame
 instance FromJSON DataFrame
+--instance ToJSON DataFrame
 
--- Example usage:
-
-exampleDataFrame :: DataFrame
-exampleDataFrame = DataFrame
-  [Column "Name" StringType, Column "Age" IntegerType, Column "IsStudent" BoolType]
-  [ [StringValue "Alice", IntegerValue 25, BoolValue False]
-  , [StringValue "Bob", IntegerValue 30, BoolValue True]
-  , [StringValue "Charlie", IntegerValue 22, BoolValue True]
-  ]
-
--- Save function
 save :: DataFrame -> TableName -> IO ()
 save df tableName = do
   let filePath = "db/" ++ tableName ++ ".json"
-  let jsonStr = encode df
-  BS.writeFile filePath jsonStr
+  let jsonStr = serializeDataFrame df
+  writeFile filePath jsonStr
 
 load :: TableName -> IO DataFrame
 load tableName = do
   let filePath = "db/" ++ tableName ++ ".json"
-  jsonStr <- BS.readFile filePath
-  case decode jsonStr of
-    Just df -> return df
-    Nothing -> error "Failed to decode JSON"
+  jsonStr <- readFile filePath
+  case eitherDecode (BSLC.pack jsonStr) of --decode (eitherDecode in our case) takes a ByteStream as an arguments, that's why we need to convert jsonStr into byteStream
+    Right df -> return df
+    Left err -> error $ "Failed to decode JSON: " ++ err
 
 main :: IO ()
 main = do
   let (tableName, df) = tableEmployees
-  save df tableName
+  save df tableName --save to json
 
   loadedDataFrame <- load tableName -- Load from JSON
   print loadedDataFrame

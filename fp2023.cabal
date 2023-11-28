@@ -52,6 +52,7 @@ library
       aeson
     , base >=4.7 && <5
     , bytestring
+    , text
     , free
     , time
     , transformers
