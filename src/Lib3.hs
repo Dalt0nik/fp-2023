@@ -117,60 +117,40 @@ executeSql sql =
 --   json <- BS.readFile "player.json"
 --   return (decode json)
 
-data MyColumnType
-  = MyIntegerType
-  | MyStringType
-  | MyBoolType
-  deriving (Show, Eq, Generic)
-
-data MyColumn = MyColumn String MyColumnType
-  deriving (Show, Eq, Generic)
-
-data MyValue
-  = MyIntegerValue Integer
-  | MyStringValue String
-  | MyBoolValue Bool
-  | MyNullValue
-  deriving (Show, Eq, Generic)
-
-type MyRow = [MyValue]
-
-data MyDataFrame = MyDataFrame [MyColumn] [MyRow]
-  deriving (Show, Eq, Generic)
 
 -- Instances for ToJSON and FromJSON
+instance ToJSON ColumnType
+instance FromJSON ColumnType
 
-instance ToJSON MyColumnType
-instance FromJSON MyColumnType
+instance ToJSON Column
+instance FromJSON Column
 
-instance ToJSON MyColumn
-instance FromJSON MyColumn
+instance ToJSON DataFrame.Value
+instance FromJSON DataFrame.Value
 
-instance ToJSON MyValue
-instance FromJSON MyValue
-
-instance ToJSON MyDataFrame
-instance FromJSON MyDataFrame
+instance ToJSON DataFrame
+instance FromJSON DataFrame
 
 -- Example usage:
 
-exampleMyDataFrame :: MyDataFrame
-exampleMyDataFrame = MyDataFrame
-  [MyColumn "Name" MyStringType, MyColumn "Age" MyIntegerType, MyColumn "IsStudent" MyBoolType]
-  [ [MyStringValue "Alice", MyIntegerValue 25, MyBoolValue False]
-  , [MyStringValue "Bob", MyIntegerValue 30, MyBoolValue True]
-  , [MyStringValue "Charlie", MyIntegerValue 22, MyBoolValue True]
+exampleDataFrame :: DataFrame
+exampleDataFrame = DataFrame
+  [Column "Name" StringType, Column "Age" IntegerType, Column "IsStudent" BoolType]
+  [ [StringValue "Alice", IntegerValue 25, BoolValue False]
+  , [StringValue "Bob", IntegerValue 30, BoolValue True]
+  , [StringValue "Charlie", IntegerValue 22, BoolValue True]
   ]
 
 -- Save function
-save :: MyDataFrame -> FilePath -> IO () --mydataframe to dataframe and filepath to tablename
-save df filePath = do
+save :: DataFrame -> TableName -> IO ()
+save df tableName = do
+  let filePath = "db/" ++ tableName ++ ".json"
   let jsonStr = encode df
   BS.writeFile filePath jsonStr
 
--- Load function
-load :: FilePath -> IO MyDataFrame
-load filePath = do
+load :: TableName -> IO DataFrame
+load tableName = do
+  let filePath = "db/" ++ tableName ++ ".json"
   jsonStr <- BS.readFile filePath
   case decode jsonStr of
     Just df -> return df
@@ -178,9 +158,8 @@ load filePath = do
 
 main :: IO ()
 main = do
-  save exampleMyDataFrame "db/my_dataframe.json"
+  save exampleDataFrame "my_dataframe2"
 
-  
-  loadedMyDataFrame <- load "db/my_dataframe.json" -- Load from JSON
-  print loadedMyDataFrame
+  loadedDataFrame <- load "my_dataframe2" -- Load from JSON
+  print loadedDataFrame
 
