@@ -12,7 +12,7 @@ where
 import Control.Monad.Free (Free (..), liftF)
 import DataFrame (DataFrame (..), Row, Column (..), ColumnType (..), Value (..))
 import Data.Time ( UTCTime )
-import InMemoryTables (database, TableName)
+import InMemoryTables (database, TableName, tableEmployees)
 import Data.Char
 import Lib2 qualified
 import Data.Aeson 
@@ -158,8 +158,9 @@ load tableName = do
 
 main :: IO ()
 main = do
-  save exampleDataFrame "my_dataframe2"
+  let (tableName, df) = tableEmployees
+  save df tableName
 
-  loadedDataFrame <- load "my_dataframe2" -- Load from JSON
+  loadedDataFrame <- load tableName -- Load from JSON
   print loadedDataFrame
 
