@@ -42,7 +42,10 @@ type ColumnName = String
 data ParsedStatement
   = ShowTablesStatement
   | ShowTableStatement TableName
-  | SelectStatement Columns TableName (Maybe Condition) deriving (Show, Eq)-- Condition
+  | SelectStatement Columns TableName (Maybe Condition)
+  | InsertStatement TableName [ColumnName] [[Value]]
+  | UpdateStatement TableName [(ColumnName, Value)] (Maybe Condition)
+  | DeleteStatement TableName (Maybe Condition) deriving (Show, Eq)-- Condition
 
 
 
@@ -102,6 +105,15 @@ parseStatement input = do
         (restOfQuery,_) <- runParser parseWhitespace $ drop 6 input
         parsedQuery <- parseSelectQuery restOfQuery
         Right parsedQuery
+    _ | "insert" `isPrefixOf` input' -> do
+        parsedInsert <- parseInsert input
+        Right parsedInsert
+    _ | "update" `isPrefixOf` input' -> do
+        parsedUpdate <- parseUpdate input
+        Right parsedUpdate
+    _ | "delete" `isPrefixOf` input' -> do
+        parsedDelete <- parseDelete input
+        Right parsedDelete
     _ -> Left "Not implemented: parseStatement"
 
 
@@ -449,9 +461,9 @@ parseValue =
       parseNull = parseKeyword "NULL" >> pure NullValue
 
 -- PARSING INSERT -- ALL VALUES MUST CORRESPOND THEIR COLUMNS
-data InsertStatement = Insert TableName [ColumnName] [[Value]] deriving (Show, Eq)
+--data InsertStatement = Insert TableName [ColumnName] [[Value]] deriving (Show, Eq)
 
-parseInsertStatement :: Parser InsertStatement
+parseInsertStatement :: Parser ParsedStatement
 parseInsertStatement = do
       _ <- parseKeyword "INSERT"
       _ <- parseWhitespace
@@ -499,15 +511,18 @@ parseInsertStatement = do
         _ <- many parseWhitespace
         return (value1' : values')
       _ <- parseChar ';'
-      return $ Insert tableName (columnName1 : columnNames) ((value1 : values) : linesOfValues)
+      return $ InsertStatement tableName (columnName1 : columnNames) ((value1 : values) : linesOfValues)
 
-parseInsert :: String -> Either ErrorMessage (String, InsertStatement)
-parseInsert = runParser parseInsertStatement
+parseInsert :: String -> Either ErrorMessage ParsedStatement
+parseInsert input =
+  case runParser parseInsertStatement input of
+    Right (_, parsedStatement) -> Right parsedStatement
+    Left errMsg -> Left errMsg
 
 -- PARSING UPDATE 
-data UpdateStatement = Update TableName [(ColumnName, Value)] (Maybe Condition) deriving (Show, Eq)
+--data UpdateStatement = Update TableName [(ColumnName, Value)] (Maybe Condition) deriving (Show, Eq)
 
-parseUpdateStatement :: Parser UpdateStatement
+parseUpdateStatement :: Parser ParsedStatement
 parseUpdateStatement = do
   _ <- parseKeyword "UPDATE"
   _ <- parseWhitespace
@@ -534,16 +549,18 @@ parseUpdateStatement = do
   whereStatement <- parseWhereStatement
   _ <- many parseWhitespace
   _ <- parseChar ';'
-  return $ Update tableName ((colName1, value1) : columnsAndValues) whereStatement
+  return $ UpdateStatement tableName ((colName1, value1) : columnsAndValues) whereStatement
 
-parseUpdate :: String -> Either ErrorMessage (String, UpdateStatement)
-parseUpdate = runParser parseUpdateStatement
+parseUpdate :: String -> Either ErrorMessage ParsedStatement
+parseUpdate input = do
+  (_, parsedStatement) <- runParser parseUpdateStatement input
+  return parsedStatement
 
 -- PARSING DELETE
 
-data DeleteStatement = Delete TableName (Maybe Condition) deriving (Show, Eq)
+--data DeleteStatement = Delete TableName (Maybe Condition) deriving (Show, Eq)
 
-parseDeleteStatement :: Parser DeleteStatement
+parseDeleteStatement :: Parser ParsedStatement
 parseDeleteStatement = do
   _ <- parseKeyword "DELETE"
   _ <- parseWhitespace
@@ -553,10 +570,13 @@ parseDeleteStatement = do
   whereStatement <- parseWhereStatement
   _ <- many parseWhitespace
   _ <- parseChar ';'
-  return $ Delete tableName whereStatement
+  return $ DeleteStatement tableName whereStatement
 
-parseDelete :: String -> Either ErrorMessage (String, DeleteStatement)
-parseDelete = runParser parseDeleteStatement
+parseDelete :: String -> Either ErrorMessage ParsedStatement
+parseDelete input =
+  case runParser parseDeleteStatement input of
+    Right (_, parsedStatement) -> Right parsedStatement
+    Left errMsg -> Left errMsg
 
 
 
