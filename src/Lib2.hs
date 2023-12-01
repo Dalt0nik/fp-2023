@@ -2,6 +2,7 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Redundant if" #-}
 {-# LANGUAGE InstanceSigs #-}
+{-# HLINT ignore "Use lambda-case" #-}
 
 module Lib2 where
 
@@ -27,14 +28,14 @@ data Operator = Equals
 
 data LogicalOp = Or deriving (Show, Eq)
 
-data WhereAtomicStatement = Where ColumnName Operator String deriving (Show, Eq)
+data WhereAtomicStatement = Where (TableName, ColumnName) Operator (Either (TableName, ColumnName) Value) deriving (Show, Eq)
 
 data Condition
   = Comparison WhereAtomicStatement [(LogicalOp, WhereAtomicStatement)] deriving (Show, Eq) -- string aka column
-  
+
 
 data Columns = All
-  | SelectedColumns [String] 
+  | SelectedColumns [(TableName, ColumnName)]
   | Aggregation [(AggregateFunction, String)] deriving (Show, Eq) -- string aka column 
 
 type ColumnName = String
@@ -42,9 +43,7 @@ type ColumnName = String
 data ParsedStatement
   = ShowTablesStatement
   | ShowTableStatement TableName
-  | SelectStatement Columns TableName (Maybe Condition) deriving (Show, Eq)-- Condition
-
-
+  | SelectStatement Columns [TableName] (Maybe Condition) deriving (Show, Eq)-- Condition
 
 newtype Parser a = Parser {
     runParser :: String -> Either ErrorMessage (String, a)
@@ -104,30 +103,39 @@ parseStatement input = do
         Right parsedQuery
     _ -> Left "Not implemented: parseStatement"
 
-
 parseSelectQuery :: String -> Either ErrorMessage ParsedStatement
 parseSelectQuery input = do
     (input', columns) <- parseColumnListQuery input
-    (skip,_) <- runParser parseWhitespace input' 
-    (input'', tableName) <- parseFromClause skip
+    (skip, _) <- runParser parseWhitespace input'
+    (input'', tableNames) <- parseFromClause skip
     (input''', conditions) <- parseWhere input''
-    return (SelectStatement columns tableName conditions)
+    return (SelectStatement columns tableNames conditions)
 
-parseFromClause :: String -> Either ErrorMessage (String, TableName)
+parseFromClause :: String -> Either ErrorMessage (String, [TableName])
 parseFromClause input = do
     (rest, _) <- runParser (parseKeyword "FROM") input
-    (rest',_) <- runParser parseWhitespace rest 
-    (rest'', tableName) <- runParser parseName rest'
-    return (rest'', tableName)
+    (rest',_) <- runParser parseWhitespace rest
+    (rest'', tableNames) <- runParser parseTableNames rest'
+    return (rest'', tableNames)
 
+parseTableNames :: Parser [TableName]
+parseTableNames = do
+  _ <- many parseWhitespace
+  tableName <- parseName
+  otherTableNames <- many $ do
+    _ <- many parseWhitespace
+    _ <- parseChar ','
+    _ <- many parseWhitespace
+    parseName
+  return (tableName : otherTableNames)
 
 -- Executes a parsed statement. Produces a DataFrame. Uses
 -- InMemoryTables.databases a source of data.
 -- Execute a SELECT statement
 executeStatement :: ParsedStatement -> Either ErrorMessage DataFrame
-executeStatement (SelectStatement columns tableName condition) = do
+executeStatement (SelectStatement columns (tableName1 : otherTableNames) condition) = do
     -- Fetch the specified table
-    (tableKey, table) <- fetchTableFromDatabase tableName -- tableKey is tableName in lower case
+    (tableKey, table) <- fetchTableFromDatabase tableName1 -- tableKey is tableName in lower case
 
     -- Filter rows based on the condition
     let filteredRows = filterRows (getColumns table) table condition
@@ -148,9 +156,12 @@ executeStatement (SelectStatement columns tableName condition) = do
             return $ DataFrame (createAggregationColumns aggregationFunctions) [resultRow]
         else do
 
+            -- let selectedColumnNames = case columns of
+            --         All -> map extractColumnName (getColumns table)
+            --         SelectedColumns colNames -> colNames
             let selectedColumnNames = case columns of
-                    All -> map extractColumnName (getColumns table)
-                    SelectedColumns colNames -> colNames
+                 All -> map extractColumnName (getColumns table)
+                 SelectedColumns colNames -> map snd colNames            -- let selectedColumnNames = case columns of
 
             let selectedColumnIndexes = mapMaybe (\colName -> findColumnIndex (getColumns table) colName) selectedColumnNames
 
@@ -159,6 +170,7 @@ executeStatement (SelectStatement columns tableName condition) = do
             let selectedRows = map (\row -> map (\i -> (row !! i)) selectedColumnIndexes) filteredRows
 
             return $ DataFrame selectedColumns selectedRows
+            
 executeStatement ShowTablesStatement = Right $ DataFrame [Column "TABLE NAME" StringType] (map (\tableName -> [StringValue tableName]) (showTables database))
 executeStatement (ShowTableStatement tableName) =
   case lookup (map toLower tableName) database of
@@ -166,7 +178,7 @@ executeStatement (ShowTableStatement tableName) =
     Nothing -> Left (tableName ++ " not found")
 executeStatement _ = Left "Not implemented: executeStatement"
 
--- Function to execute aggregation functions
+-- -- Function to execute aggregation functions
 executeAggregationFunction :: AggregateFunction -> Maybe Int -> [Row] -> Value
 executeAggregationFunction Min (Just colIndex) rows =
     let values = map (extractValueAtIndex colIndex) rows
@@ -225,11 +237,16 @@ filterRows columns (DataFrame _ rows) condition = case condition of
     Nothing -> rows  -- When condition is Nothing, return all rows
   where
     evaluateWhereStatement :: WhereAtomicStatement -> Row -> Bool
-    evaluateWhereStatement (Where columnName op value) row = case op of
-        Equals -> extractValue columnName row == value
-        NotEquals -> extractValue columnName row /= value
-        LessThanOrEqual -> extractValue columnName row <= value
-        GreaterThanOrEqual -> extractValue columnName row >= value
+    evaluateWhereStatement (Where (tableName, columnName) op valueEither) row = case op of
+        Equals -> case valueEither of
+            Right (StringValue stringValue) -> extractValue columnName row == stringValue
+            --Left (tableName2, columnName2) -> extractValue (tableName, columnName) row == extractValue (refTableName, refColumnName) row
+        NotEquals -> case valueEither of
+            Right (StringValue stringValue) -> extractValue columnName row /= stringValue
+        LessThanOrEqual -> case valueEither of
+            Right (StringValue stringValue) -> extractValue columnName row <= stringValue
+        GreaterThanOrEqual -> case valueEither of
+            Right (StringValue stringValue) -> extractValue columnName row >= stringValue
 
     evaluateWithLogicalOps :: WhereAtomicStatement -> [(LogicalOp, WhereAtomicStatement)] -> Row -> Bool
     evaluateWithLogicalOps whereStatement [] row = evaluateWhereStatement whereStatement row
@@ -248,10 +265,55 @@ dataFrameColumns :: DataFrame -> [Column]
 dataFrameColumns (DataFrame columns _) = columns
 
 -- Select columns
-selectColumns :: [Column] -> Columns -> [Column]
-selectColumns allColumns (SelectedColumns colNames) =
-    filter (\col -> extractColumnName col `elem` colNames) allColumns
+-- selectColumns :: [Column] -> Columns -> [Column]
+-- selectColumns allColumns (SelectedColumns colNames) =
+--     filter (\col -> extractColumnName col `elem` colNames) allColumns
 
+-- Helper function to filter rows with join conditions
+filterRowsWithJoin :: [(TableName, DataFrame)] -> Maybe Condition -> [Row]
+filterRowsWithJoin tables maybeCondition =
+    case maybeCondition of
+        Just (Comparison whereStatement []) -> filter (evaluateWhereStatement whereStatement) allRows
+        Just (Comparison whereStatement logicalOps) -> filter (evaluateWithLogicalOps whereStatement logicalOps) allRows
+        Nothing -> allRows  -- When condition is Nothing, return all rows
+  where
+    allRows = cartesianProductRows (map snd tables)
+
+    evaluateWhereStatement :: WhereAtomicStatement -> Row -> Bool
+    evaluateWhereStatement (Where (tableName1, columnName1) op (Left (tableName2, columnName2))) row =
+        let value1 = extractValue tableName1 columnName1 row
+            value2 = extractValue tableName2 columnName2 row
+        in case op of
+            Equals -> value1 == value2
+            NotEquals -> value1 /= value2
+            LessThanOrEqual -> value1 <= value2
+            GreaterThanOrEqual -> value1 >= value2
+
+    evaluateWithLogicalOps :: WhereAtomicStatement -> [(LogicalOp, WhereAtomicStatement)] -> Row -> Bool
+    evaluateWithLogicalOps whereStatement [] row = evaluateWhereStatement whereStatement row
+    evaluateWithLogicalOps whereStatement ((Or, nextWhereStatement):rest) row =
+        evaluateWhereStatement whereStatement row || evaluateWithLogicalOps nextWhereStatement rest row
+
+    extractValue :: TableName -> ColumnName -> Row -> String
+    extractValue tableName columnName row =
+        case findTableIndex tables tableName of
+            Just tableIndex ->
+                case findColumnIndex (getColumns (snd (tables !! tableIndex))) columnName of
+                    Just colIndex -> case row !! (tableIndex + colIndex) of
+                        StringValue value -> value
+                        _ -> ""
+                    Nothing -> ""
+            Nothing -> ""
+
+    findTableIndex :: [(TableName, DataFrame)] -> TableName -> Maybe Int
+    findTableIndex tables tableName = elemIndex tableName (map fst tables)
+
+cartesianProductRows :: [DataFrame] -> [Row]
+cartesianProductRows = foldr combineRows [[]]
+  where
+    combineRows :: DataFrame -> [Row] -> [Row]
+    combineRows (DataFrame _ rows) acc = [row ++ newRow | row <- acc, newRow <- rows]
+    
 
 ------------------------------PARSERS (BEFORE WHERE CLAUSE)----------------------------
 parseName :: Parser String
@@ -273,22 +335,34 @@ parseColumns = parseAll <|> parseAggregationStatement <|> parseColumnList
 parseAll :: Parser Columns
 parseAll = fmap (\_ -> All) $ parseChar '*'
 
+-- parseColumnList :: Parser Columns
+-- parseColumnList = do
+--     name <- parseName
+--     other <- many parseCSName
+--     return $ SelectedColumns $ name : other
+
 parseColumnList :: Parser Columns
 parseColumnList = do
-    name <- parseName
+    (tableName, columnName) <- parseTableAndColumnName
     other <- many parseCSName
-    return $ SelectedColumns $ name : other
+    return $ SelectedColumns $ (tableName, columnName) : other
 
-parseCSName :: Parser String
+parseTableAndColumnName :: Parser (TableName, ColumnName)
+parseTableAndColumnName = do
+    tableName <- parseName
+    _ <- parseChar '.'
+    columnName <- parseName
+    return (tableName, columnName)
+
+parseCSName :: Parser (String, String)
 parseCSName = do
     _ <- many $ parseChar ' ' --many means that can be zero or more ' ' chars
     _ <- parseChar ','
     _ <- many $ parseChar ' '
-    name <- parseName
-    return name
+    parseTableAndColumnName
 
 parseColumnListQuery :: String -> Either ErrorMessage (String, Columns)
-parseColumnListQuery inp = runParser parseColumns inp
+parseColumnListQuery = runParser parseColumns
 
 parseKeyword :: String -> Parser String
 parseKeyword keyword = Parser $ \inp ->
@@ -304,18 +378,18 @@ parseLogicalOp = parseKeyword "OR" >> pure Or
 
 parseOperator :: Parser Operator
 parseOperator = parseEquals <|> parseNotEquals <|> parseGreaterThanOrEqual <|> parseLessThanOrEqual
-  where
-    parseEquals :: Parser Operator
-    parseEquals = parseKeyword "=" >> pure Equals
 
-    parseNotEquals :: Parser Operator
-    parseNotEquals = parseKeyword "<>" >> pure NotEquals
+parseEquals :: Parser Operator
+parseEquals = parseKeyword "=" >> pure Equals
 
-    parseGreaterThanOrEqual :: Parser Operator
-    parseGreaterThanOrEqual = parseKeyword ">=" >> pure GreaterThanOrEqual
+parseNotEquals :: Parser Operator
+parseNotEquals = parseKeyword "<>" >> pure NotEquals
 
-    parseLessThanOrEqual :: Parser Operator
-    parseLessThanOrEqual = parseKeyword "<=" >> pure LessThanOrEqual
+parseGreaterThanOrEqual :: Parser Operator
+parseGreaterThanOrEqual = parseKeyword ">=" >> pure GreaterThanOrEqual
+
+parseLessThanOrEqual :: Parser Operator
+parseLessThanOrEqual = parseKeyword "<=" >> pure LessThanOrEqual
 
 parseWhitespace :: Parser String
 parseWhitespace = do
@@ -331,31 +405,52 @@ parseWhereStatement :: Parser (Maybe Condition)
 parseWhereStatement = parseWithWhere <|> parseWithoutWhere
   where
     parseWithWhere = do
-       _ <- many parseWhitespace
-       _ <- parseKeyword "WHERE"
-       _ <- parseWhitespace
-       columnName <- parseName
-       _ <- parseWhitespace
-       condition <- parseOperator
-       _ <- parseWhitespace
-       _ <- parseQuotationMarks
-       conditionString <- parseName
-       _ <- parseQuotationMarks
-       otherConditions <- many $ do
-         _ <- parseWhitespace
-         logicalOp <- parseLogicalOp
-         _ <- parseWhitespace
-         columnName' <- parseName
-         _ <- parseWhitespace
-         condition' <- parseOperator
-         _ <- parseWhitespace
-         _ <- parseQuotationMarks
-         conditionString' <- parseName
-         _ <- parseQuotationMarks
-         return (logicalOp, Where columnName' condition' conditionString')
-       return $ Just $ Comparison (Where columnName condition conditionString) otherConditions
+      _ <- many parseWhitespace
+      _ <- parseKeyword "WHERE"
+      _ <- parseWhitespace
+      condition <- parseCondition
+      otherConditions <- many $ do
+        _ <- parseWhitespace
+        logicalOp <- parseLogicalOp
+        _ <- parseWhitespace
+        condition' <- parseCondition
+        return (logicalOp, condition')
+      return $ Just $ Comparison condition otherConditions
 
     parseWithoutWhere = pure Nothing
+
+-- Parser for atomic conditions
+parseCondition :: Parser WhereAtomicStatement
+parseCondition = parseComparisonWithStringValue <|> parseComparisonWithColumnReference
+  where
+    parseComparisonWithStringValue :: Parser WhereAtomicStatement
+    parseComparisonWithStringValue = do
+      _ <- many parseWhitespace
+      (tableName, columnName) <- parseTableAndColumnName
+      _ <- many parseWhitespace
+      op <- parseOperator
+      _ <- many parseWhitespace
+      _ <- parseQuotationMarks
+      conditionString <- parseName
+      _ <- parseQuotationMarks
+      return $ Where (tableName, columnName) op (Right (StringValue conditionString))
+
+    parseComparisonWithColumnReference :: Parser WhereAtomicStatement
+    parseComparisonWithColumnReference = do
+      _ <- many parseWhitespace
+      (tableName1, columnName1) <- parseTableAndColumnName
+      _ <- many parseWhitespace
+      op <- parseEquals
+      _ <- many parseWhitespace
+      (tableName2, columnName2) <- parseTableAndColumnName
+      return $ Where (tableName1, columnName1) op (Left (tableName2, columnName2))
+
+    parseTableAndColumnName :: Parser (TableName, ColumnName)
+    parseTableAndColumnName = do
+      tableName <- parseName
+      _ <- parseChar '.'
+      columnName <- parseName
+      return (tableName, columnName)
 
 
 parseWhere :: String -> Either ErrorMessage (String, Maybe Condition)
@@ -393,11 +488,9 @@ parseAggregateFunction' = parseMin <|> parseSum
     parseMin = parseKeyword "MIN" >> pure Min
     parseSum = parseKeyword "SUM" >> pure Sum
 
-
-
 --used in ShowTables execution
 showTables :: Database -> [TableName]
-showTables db = map fst db
+showTables = map fst
 
 extractColumnName :: Column -> String
 extractColumnName (Column name _) = name
