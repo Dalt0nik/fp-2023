@@ -461,7 +461,6 @@ parseValue =
       parseNull = parseKeyword "NULL" >> pure NullValue
 
 -- PARSING INSERT -- ALL VALUES MUST CORRESPOND THEIR COLUMNS
---data InsertStatement = Insert TableName [ColumnName] [[Value]] deriving (Show, Eq)
 
 parseInsertStatement :: Parser ParsedStatement
 parseInsertStatement = do
@@ -519,9 +518,6 @@ parseInsert input =
     Right (_, parsedStatement) -> Right parsedStatement
     Left errMsg -> Left errMsg
 
--- PARSING UPDATE 
---data UpdateStatement = Update TableName [(ColumnName, Value)] (Maybe Condition) deriving (Show, Eq)
-
 parseUpdateStatement :: Parser ParsedStatement
 parseUpdateStatement = do
   _ <- parseKeyword "UPDATE"
@@ -552,13 +548,10 @@ parseUpdateStatement = do
   return $ UpdateStatement tableName ((colName1, value1) : columnsAndValues) whereStatement
 
 parseUpdate :: String -> Either ErrorMessage ParsedStatement
-parseUpdate input = do
-  (_, parsedStatement) <- runParser parseUpdateStatement input
-  return parsedStatement
-
--- PARSING DELETE
-
---data DeleteStatement = Delete TableName (Maybe Condition) deriving (Show, Eq)
+parseUpdate input =
+  case runParser parseUpdateStatement input of
+    Right (_, parsedStatement) -> Right parsedStatement
+    Left errMsg -> Left errMsg
 
 parseDeleteStatement :: Parser ParsedStatement
 parseDeleteStatement = do
