@@ -5,13 +5,13 @@
 
 module Lib2 where
 
-
 import DataFrame (DataFrame (..), Row, Column (..), ColumnType (..), Value (..))
 import InMemoryTables (TableName, database)
 import Control.Applicative((<|>), empty, Alternative (some, many))
-import Data.Char(isAlphaNum, toLower, isSpace)
+import Data.Char(isAlphaNum, toLower, isSpace, isDigit, isAlpha)
 import Data.List
 import Data.Maybe
+import Text.Read (Lexeme(String))
 
 type ErrorMessage = String
 type Database = [(TableName, DataFrame)]
@@ -31,10 +31,10 @@ data WhereAtomicStatement = Where ColumnName Operator String deriving (Show, Eq)
 
 data Condition
   = Comparison WhereAtomicStatement [(LogicalOp, WhereAtomicStatement)] deriving (Show, Eq) -- string aka column
-  
+
 
 data Columns = All
-  | SelectedColumns [String] 
+  | SelectedColumns [String]
   | Aggregation [(AggregateFunction, String)] deriving (Show, Eq) -- string aka column 
 
 type ColumnName = String
@@ -42,7 +42,10 @@ type ColumnName = String
 data ParsedStatement
   = ShowTablesStatement
   | ShowTableStatement TableName
-  | SelectStatement Columns TableName (Maybe Condition) deriving (Show, Eq)-- Condition
+  | SelectStatement Columns TableName (Maybe Condition)
+  | InsertStatement TableName [ColumnName] [[Value]]
+  | UpdateStatement TableName [(ColumnName, Value)] (Maybe Condition)
+  | DeleteStatement TableName (Maybe Condition) deriving (Show, Eq)-- Condition
 
 
 
@@ -102,13 +105,22 @@ parseStatement input = do
         (restOfQuery,_) <- runParser parseWhitespace $ drop 6 input
         parsedQuery <- parseSelectQuery restOfQuery
         Right parsedQuery
+    _ | "insert" `isPrefixOf` input' -> do
+        parsedInsert <- parseInsert input
+        Right parsedInsert
+    _ | "update" `isPrefixOf` input' -> do
+        parsedUpdate <- parseUpdate input
+        Right parsedUpdate
+    _ | "delete" `isPrefixOf` input' -> do
+        parsedDelete <- parseDelete input
+        Right parsedDelete
     _ -> Left "Not implemented: parseStatement"
 
 
 parseSelectQuery :: String -> Either ErrorMessage ParsedStatement
 parseSelectQuery input = do
     (input', columns) <- parseColumnListQuery input
-    (skip,_) <- runParser parseWhitespace input' 
+    (skip,_) <- runParser parseWhitespace input'
     (input'', tableName) <- parseFromClause skip
     (input''', conditions) <- parseWhere input''
     return (SelectStatement columns tableName conditions)
@@ -116,7 +128,7 @@ parseSelectQuery input = do
 parseFromClause :: String -> Either ErrorMessage (String, TableName)
 parseFromClause input = do
     (rest, _) <- runParser (parseKeyword "FROM") input
-    (rest',_) <- runParser parseWhitespace rest 
+    (rest',_) <- runParser parseWhitespace rest
     (rest'', tableName) <- runParser parseName rest'
     return (rest'', tableName)
 
@@ -290,14 +302,25 @@ parseCSName = do
 parseColumnListQuery :: String -> Either ErrorMessage (String, Columns)
 parseColumnListQuery inp = runParser parseColumns inp
 
-parseKeyword :: String -> Parser String
+-- parseKeyword :: String -> Parser String -- OLD VERSION
+-- parseKeyword keyword = Parser $ \inp ->
+--   if map toLower (take l inp) == map toLower keyword then
+--     Right (drop l inp, keyword)
+--   else
+--     Left $ keyword ++ " expected"
+--   where
+--     l = length keyword
+
+parseKeyword :: String -> Parser String -- NEW VERSION
 parseKeyword keyword = Parser $ \inp ->
-  if map toLower (take l inp) == map toLower keyword then
-    Right (drop l inp, keyword)
-  else
-    Left $ keyword ++ " expected"
-  where
+  let
     l = length keyword
+  in if map toLower (take l inp) == map toLower keyword &&
+        (null (drop l inp) || not (isAlpha (head (drop l inp)))) then
+        Right (drop l inp, keyword)
+      else
+        Left $ keyword ++ " expected"
+
 ----------------WHERE PARSER-----------------------
 parseLogicalOp :: Parser LogicalOp
 parseLogicalOp = parseKeyword "OR" >> pure Or
@@ -319,7 +342,7 @@ parseOperator = parseEquals <|> parseNotEquals <|> parseGreaterThanOrEqual <|> p
 
 parseWhitespace :: Parser String
 parseWhitespace = do
-   _ <- some $ parseChar ' ' -- many means that it is 1 or more ' ' chars
+   _ <- some $ parseChar ' ' -- some means that it is 1 or more ' ' chars
    return ""
 
 parseQuotationMarks :: Parser String
@@ -335,20 +358,20 @@ parseWhereStatement = parseWithWhere <|> parseWithoutWhere
        _ <- parseKeyword "WHERE"
        _ <- parseWhitespace
        columnName <- parseName
-       _ <- parseWhitespace
+       _ <- many parseWhitespace
        condition <- parseOperator
-       _ <- parseWhitespace
+       _ <- many parseWhitespace
        _ <- parseQuotationMarks
        conditionString <- parseName
        _ <- parseQuotationMarks
        otherConditions <- many $ do
          _ <- parseWhitespace
          logicalOp <- parseLogicalOp
-         _ <- parseWhitespace
+         _ <- many parseWhitespace
          columnName' <- parseName
-         _ <- parseWhitespace
+         _ <- many parseWhitespace
          condition' <- parseOperator
-         _ <- parseWhitespace
+         _ <- many parseWhitespace
          _ <- parseQuotationMarks
          conditionString' <- parseName
          _ <- parseQuotationMarks
@@ -401,3 +424,153 @@ showTables db = map fst db
 
 extractColumnName :: Column -> String
 extractColumnName (Column name _) = name
+
+
+-- LAB3
+parseValue :: Parser Value
+parseValue =
+  IntegerValue <$> parseInteger <|>
+  BoolValue <$> parseBool <|>
+  parseNull <|>
+  StringValue <$> parseString
+    where
+      parseInteger :: Parser Integer
+      parseInteger = Parser $ \inp ->
+        let
+          (digits, rest) = span isDigit inp
+        in case reads digits of
+              [(n, "")] -> Right (rest, n)
+              _ -> Left "Error: Not a valid integer"
+
+      parseBool :: Parser Bool
+      parseBool = do
+        keyword <- parseKeyword "True" <|> parseKeyword "False"
+        case map toLower keyword of
+          "true"  -> pure True
+          "false" -> pure False
+          _ -> empty
+
+      parseString :: Parser String
+      parseString = do
+        _ <- parseQuotationMarks
+        string <- parseName
+        _ <- parseQuotationMarks
+        return string
+
+      parseNull :: Parser Value
+      parseNull = parseKeyword "NULL" >> pure NullValue
+
+-- PARSING INSERT -- ALL VALUES MUST CORRESPOND THEIR COLUMNS
+
+parseInsertStatement :: Parser ParsedStatement
+parseInsertStatement = do
+      _ <- parseKeyword "INSERT"
+      _ <- parseWhitespace
+      _ <- parseKeyword "INTO"
+      _ <- parseWhitespace
+      tableName <- parseName
+      _ <- parseWhitespace
+      _ <- parseChar '('
+      _ <- many parseWhitespace
+      columnName1 <- parseName
+      columnNames <- many $ do
+        _ <- many parseWhitespace
+        _ <- parseChar ','
+        _ <- many parseWhitespace
+        parseName
+      _ <- many parseWhitespace
+      _ <- parseChar ')'
+      _ <- parseWhitespace
+      _ <- parseKeyword "VALUES"
+      _ <- parseWhitespace
+      _ <- parseChar '('
+      _ <- many parseWhitespace
+      value1 <- parseValue
+      values <- many $ do
+         _ <- many parseWhitespace
+         _ <- parseChar ','
+         _ <- many parseWhitespace
+         parseValue
+      _ <- many parseWhitespace
+      _ <- parseChar ')'
+      linesOfValues <- many $ do
+        _ <- many parseWhitespace
+        _ <- parseChar ','
+        _ <- many parseWhitespace
+        _ <- parseChar '('
+        _ <- many parseWhitespace
+        value1' <- parseValue
+        values' <- many $ do
+          _ <- many parseWhitespace
+          _ <- parseChar ','
+          _ <- many parseWhitespace
+          parseValue
+        _ <- many parseWhitespace
+        _ <- parseChar ')'
+        _ <- many parseWhitespace
+        return (value1' : values')
+      _ <- parseChar ';'
+      return $ InsertStatement tableName (columnName1 : columnNames) ((value1 : values) : linesOfValues)
+
+parseInsert :: String -> Either ErrorMessage ParsedStatement
+parseInsert input =
+  case runParser parseInsertStatement input of
+    Right (_, parsedStatement) -> Right parsedStatement
+    Left errMsg -> Left errMsg
+
+parseUpdateStatement :: Parser ParsedStatement
+parseUpdateStatement = do
+  _ <- parseKeyword "UPDATE"
+  _ <- parseWhitespace
+  tableName <- parseName
+  _ <- parseWhitespace
+  _ <- parseKeyword "SET"
+  _ <- parseWhitespace
+  colName1 <- parseName
+  _ <- parseWhitespace
+  _ <- parseChar '='
+  _ <- parseWhitespace
+  value1 <- parseValue
+  columnsAndValues <- many $ do
+    _ <- many parseWhitespace
+    _ <- parseChar ','
+    _ <- many parseWhitespace
+    colName <- parseName
+    _ <- many parseWhitespace
+    _ <- parseChar '='
+    _ <- many parseWhitespace
+    value <- parseValue
+    return (colName, value)
+  _ <- many parseWhitespace
+  whereStatement <- parseWhereStatement
+  _ <- many parseWhitespace
+  _ <- parseChar ';'
+  return $ UpdateStatement tableName ((colName1, value1) : columnsAndValues) whereStatement
+
+parseUpdate :: String -> Either ErrorMessage ParsedStatement
+parseUpdate input =
+  case runParser parseUpdateStatement input of
+    Right (_, parsedStatement) -> Right parsedStatement
+    Left errMsg -> Left errMsg
+
+parseDeleteStatement :: Parser ParsedStatement
+parseDeleteStatement = do
+  _ <- parseKeyword "DELETE"
+  _ <- parseWhitespace
+  _ <- parseKeyword "FROM"
+  _ <- parseWhitespace
+  tableName <- parseName
+  whereStatement <- parseWhereStatement
+  _ <- many parseWhitespace
+  _ <- parseChar ';'
+  return $ DeleteStatement tableName whereStatement
+
+parseDelete :: String -> Either ErrorMessage ParsedStatement
+parseDelete input =
+  case runParser parseDeleteStatement input of
+    Right (_, parsedStatement) -> Right parsedStatement
+    Left errMsg -> Left errMsg
+
+
+
+
