@@ -1,5 +1,9 @@
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE OverloadedStrings #-}
+
+{-# LANGUAGE DeriveGeneric #-}
+
+
 module Lib3
   ( executeSql,
     Execution,
@@ -23,6 +27,8 @@ import Data.List
 import Data.Char
 import Data.ByteString hiding (map, isPrefixOf, filter)
 import Lib2 (ParsedStatement(InsertStatement))
+import Data.Data (Data)
+import GHC.Generics (Generic)
 
 
 type FileContent = String
@@ -34,7 +40,7 @@ type DeserializedTableNameDataFrame = (TableName, DataFrame)
 
  
 data ExecutionAlgebra next
-  = LoadFile TableName (Either ErrorMessage DeserializedTableNameDataFrame -> next) -- deserialize table
+  = LoadFile TableName (Either ErrorMessage DataFrame -> next) -- deserialize table
   | SaveTable (TableName, DataFrame) (()-> next) --serialize table
   | GetCurrentTime (UTCTime -> next)
   | ShowTable TableName (Either ErrorMessage DataFrame -> next)
@@ -44,7 +50,7 @@ data ExecutionAlgebra next
   deriving Functor
 
 
-loadFile :: TableName -> Execution (Either ErrorMessage DeserializedTableNameDataFrame)
+loadFile :: TableName -> Execution (Either ErrorMessage DataFrame)
 loadFile tableName = liftF $ LoadFile tableName id
 
 saveTable :: TableName -> DataFrame -> Execution ()
@@ -65,10 +71,10 @@ showTable tableName = case Lib2.fetchTableFromDatabase tableName of
   Right (_, table) -> return $ Right table
   Left errMsg -> return $ Left errMsg
 
--- executeInsert :: Lib2.ParsedStatement -> Execution (Either ErrorMessage DataFrame)
--- executeInsert (Lib2.InsertStatement tableName columns values) = do
---   dataFrame <- loadFile tableName
---   return $ Right dataFrame
+executeInsert :: Lib2.ParsedStatement -> Execution (Either ErrorMessage DataFrame)
+executeInsert (Lib2.InsertStatement tableName columns values) = do
+  dataFrame <- loadFile tableName
+  return $ dataFrame
   
 
 executeSql :: String -> Execution (Either ErrorMessage DataFrame)
@@ -94,6 +100,7 @@ executeSql sql = do
     --     parsedStatement
     _ -> do
       return $ Left "command not found"
+      
 
 
 ---------SERIALISATION----DESERIALIZATION------------------
