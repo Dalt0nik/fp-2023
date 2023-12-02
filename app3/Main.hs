@@ -83,7 +83,12 @@ runExecuteIO (Free step) = do
         runStep (Lib3.ExecuteStatement statement next) = do
           let executionResult = Lib2.executeStatement statement
           return $ next executionResult
+
         runStep (Lib3.LoadFile tableName next) = do
-          dataFrame <- Lib3.load tableName
-          return $ next dataFrame
+          let filePath = "db/" ++ tableName ++ ".json"
+          fileContent <- Prelude.readFile filePath 
+          let tableNameDataFrame = (tableName, Lib3.deserializeDataFrame fileContent )
+          return $ next tableNameDataFrame
+
+
 

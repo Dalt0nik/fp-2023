@@ -7,7 +7,8 @@ module Lib3
     showTable,
     --executeInsert,
     save,
-    load
+    load,
+    deserializeDataFrame
   )
 where
 
@@ -29,9 +30,11 @@ type ErrorMessage = String
 type Database = [(TableName, DataFrame)]
 type ColumnName = String
 type Execution = Free ExecutionAlgebra
+type DeserializedTableNameDataFrame = (TableName, DataFrame)
 
+ 
 data ExecutionAlgebra next
-  = LoadFile TableName (DataFrame -> next) -- deserialize table
+  = LoadFile TableName (Either ErrorMessage DeserializedTableNameDataFrame -> next) -- deserialize table
   | SaveTable (TableName, DataFrame) (()-> next) --serialize table
   | GetCurrentTime (UTCTime -> next)
   | ShowTable TableName (Either ErrorMessage DataFrame -> next)
@@ -41,8 +44,8 @@ data ExecutionAlgebra next
   deriving Functor
 
 
-loadFile :: TableName -> Execution DataFrame
-loadFile name = liftF $ LoadFile name id
+loadFile :: TableName -> Execution (Either ErrorMessage DeserializedTableNameDataFrame)
+loadFile tableName = liftF $ LoadFile tableName id
 
 saveTable :: TableName -> DataFrame -> Execution ()
 saveTable tableName dataFrame = liftF $ SaveTable (tableName, dataFrame) id
@@ -62,10 +65,10 @@ showTable tableName = case Lib2.fetchTableFromDatabase tableName of
   Right (_, table) -> return $ Right table
   Left errMsg -> return $ Left errMsg
 
-executeInsert :: Lib2.ParsedStatement -> Execution (Either ErrorMessage DataFrame)
-executeInsert (Lib2.InsertStatement tableName columns values) = do
-  dataFrame <- loadFile tableName
-  return $ Right dataFrame
+-- executeInsert :: Lib2.ParsedStatement -> Execution (Either ErrorMessage DataFrame)
+-- executeInsert (Lib2.InsertStatement tableName columns values) = do
+--   dataFrame <- loadFile tableName
+--   return $ Right dataFrame
   
 
 executeSql :: String -> Execution (Either ErrorMessage DataFrame)
@@ -140,13 +143,24 @@ save df tableName = do
   let jsonStr = serializeDataFrame df
   Prelude.writeFile filePath jsonStr
 
-load :: TableName -> IO DataFrame
+-- load :: TableName -> IO DataFrame
+-- load tableName = do
+--   let filePath = "db/" ++ tableName ++ ".json"
+--   jsonStr <- Prelude.readFile filePath
+--   case eitherDecode (BSLC.pack jsonStr) of --decode (eitherDecode in our case) takes a ByteStream as an arguments, that's why we need to convert jsonStr into byteStream
+--     Right df -> return df
+--     Left err -> error $ "Failed to decode JSON: " ++ err
+
+load :: TableName -> IO FileContent
 load tableName = do
   let filePath = "db/" ++ tableName ++ ".json"
-  jsonStr <- Prelude.readFile filePath
-  case eitherDecode (BSLC.pack jsonStr) of --decode (eitherDecode in our case) takes a ByteStream as an arguments, that's why we need to convert jsonStr into byteStream
-    Right df -> return df
-    Left err -> error $ "Failed to decode JSON: " ++ err
+  Prelude.readFile filePath    
+
+deserializeDataFrame :: FileContent -> Either ErrorMessage DataFrame
+deserializeDataFrame jsonStr =
+  case eitherDecode (BSLC.pack jsonStr) of
+    Right df -> Right df
+    Left err -> Left $ "Failed to decode JSON: " ++ err
 
 main :: IO()
 main = do
