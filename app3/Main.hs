@@ -72,9 +72,9 @@ runExecuteIO (Free step) = do
         runStep (Lib3.ShowTable tableName f) = do
           tableResult <- runExecuteIO $ Lib3.showTable tableName
           return $ f tableResult
-        runStep (Lib3.ExecuteInsert tableName statement f) = do
-          tableResult <- runExecuteIO $ Lib3.executeInsert tableName statement
-          return $ f tableResult
+        -- runStep (Lib3.ExecuteInsert tableName statement f) = do
+        --   tableResult <- runExecuteIO $ Lib3.executeInsert tableName statement
+        --   return $ f tableResult
         runStep (Lib3.ParseStatement input next) = do
           let parsedStatement = case Lib2.parseStatement input of
                 Right stmt -> stmt
@@ -83,4 +83,7 @@ runExecuteIO (Free step) = do
         runStep (Lib3.ExecuteStatement statement next) = do
           let executionResult = Lib2.executeStatement statement
           return $ next executionResult
+        runStep (Lib3.LoadFile tableName next) = do
+          dataFrame <- Lib3.load tableName
+          return $ next dataFrame
 

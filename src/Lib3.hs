@@ -21,6 +21,7 @@ import qualified Data.ByteString.Lazy.Char8 as BSLC
 import Data.List
 import Data.Char
 import Data.ByteString hiding (map, isPrefixOf, filter)
+import Lib2 (ParsedStatement(InsertStatement))
 
 
 type FileContent = String
@@ -30,7 +31,7 @@ type ColumnName = String
 type Execution = Free ExecutionAlgebra
 
 data ExecutionAlgebra next
-  = LoadFile TableName (FileContent -> next) -- deserialize table
+  = LoadFile TableName (DataFrame -> next) -- deserialize table
   | SaveTable (TableName, DataFrame) (()-> next) --serialize table
   | GetCurrentTime (UTCTime -> next)
   | ShowTable TableName (Either ErrorMessage DataFrame -> next)
@@ -40,8 +41,12 @@ data ExecutionAlgebra next
   deriving Functor
 
 
-loadFile :: TableName -> Execution FileContent
-loadFile name = liftF $ LoadFile name id --why id?
+loadFile :: TableName -> Execution DataFrame
+loadFile name = liftF $ LoadFile name id
+
+saveTable :: TableName -> DataFrame -> Execution ()
+saveTable tableName dataFrame = liftF $ SaveTable (tableName, dataFrame) id
+
 
 getCurrentTime :: Execution UTCTime
 getCurrentTime = liftF $ GetCurrentTime id
@@ -57,9 +62,9 @@ showTable tableName = case Lib2.fetchTableFromDatabase tableName of
   Right (_, table) -> return $ Right table
   Left errMsg -> return $ Left errMsg
 
-executeInsert :: TableName -> Lib2.ParsedStatement -> Execution (Either ErrorMessage DataFrame)
-executeInsert tableName parsedStatement = do
-  dataFrame <- load tableName
+executeInsert :: Lib2.ParsedStatement -> Execution (Either ErrorMessage DataFrame)
+executeInsert (Lib2.InsertStatement tableName columns values) = do
+  dataFrame <- loadFile tableName
   return $ Right dataFrame
   
 
@@ -77,7 +82,7 @@ executeSql sql = do
         executeStatement parsedStatement
     -- _ | "insert" `isPrefixOf` sql' -> do
     --     parsedStatement <- parseStatement sql
-    --     parsedStatement
+    --     return $ Right executeInsert parsedStatement
     -- _ | "update" `isPrefixOf` sql' -> do
     --     parsedStatement <- parseStatement sql
     --     parsedStatement
