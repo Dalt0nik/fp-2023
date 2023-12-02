@@ -19,6 +19,7 @@ import System.Console.Repline
   )
 import System.Console.Terminal.Size (Window, size, width)
 import GHC.Real (underflowError)
+import qualified Lib3
 
 type Repl a = HaskelineT IO a
 
@@ -70,6 +71,9 @@ runExecuteIO (Free step) = do
         runStep (Lib3.GetCurrentTime next) = getCurrentTime >>= return . next
         runStep (Lib3.ShowTable tableName f) = do
           tableResult <- runExecuteIO $ Lib3.showTable tableName
+          return $ f tableResult
+        runStep (Lib3.ExecuteInsert tableName statement f) = do
+          tableResult <- runExecuteIO $ Lib3.executeInsert tableName statement
           return $ f tableResult
         runStep (Lib3.ParseStatement input next) = do
           let parsedStatement = case Lib2.parseStatement input of
