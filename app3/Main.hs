@@ -9,6 +9,7 @@ import Data.List qualified as L
 import Lib1 qualified
 import Lib2 qualified
 import Lib3 qualified
+import DataFrame (DataFrame (..), Row, Column (..), ColumnType (..), Value (..))
 import System.Console.Repline
   ( CompleterStyle (Word),
     ExitDecision (Exit),
@@ -17,6 +18,7 @@ import System.Console.Repline
     evalRepl,
   )
 import System.Console.Terminal.Size (Window, size, width)
+import GHC.Real (underflowError)
 
 type Repl a = HaskelineT IO a
 
@@ -65,4 +67,16 @@ runExecuteIO (Free step) = do
     where
         -- probably you will want to extend the interpreter
         runStep :: Lib3.ExecutionAlgebra a -> IO a
-        runStep (Lib3.GetTime next) = getCurrentTime >>= return . next
+        runStep (Lib3.GetCurrentTime next) = getCurrentTime >>= return . next
+        runStep (Lib3.ShowTable tableName f) = do
+          tableResult <- runExecuteIO $ Lib3.showTable tableName
+          return $ f tableResult
+        runStep (Lib3.ParseStatement input next) = do
+          let parsedStatement = case Lib2.parseStatement input of
+                Right stmt -> stmt
+                Left err -> error ("Parsing error: " ++ err)  -- Errors don't work
+          return $ next parsedStatement
+        runStep (Lib3.ExecuteStatement statement next) = do
+          let executionResult = Lib2.executeStatement statement
+          return $ next executionResult
+

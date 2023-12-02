@@ -25,6 +25,8 @@ l = [42, 123]
 l1 :: [Integer]
 l1 = 1 : l
 
+l2 :: [Integer]
+l2 = [1,2,3,4,5]
 
 leng :: [a] -> Integer
 leng [] = 0
