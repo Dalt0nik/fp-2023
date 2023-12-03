@@ -2,6 +2,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 {-# LANGUAGE DeriveGeneric #-}
+{-# OPTIONS_GHC -Wno-incomplete-patterns #-}
+{-# OPTIONS_GHC -Wno-deprecations #-}
 
 
 module Lib3
@@ -22,14 +24,16 @@ import DataFrame (DataFrame (..), Row, Column (..), ColumnType (..), Value (..))
 import Data.Time ( UTCTime )
 import InMemoryTables (database, TableName, tableEmployees)
 import Lib2 qualified
-import Data.Aeson 
+import Data.Aeson hiding (Value) 
 import qualified Data.ByteString.Lazy.Char8 as BSLC
 import Data.List
 import Data.Char
-import Data.ByteString hiding (map, isPrefixOf, filter)
+import Data.ByteString hiding (zipWith, map, isPrefixOf, filter)
 import Lib2 (ParsedStatement(InsertStatement))
 import Data.Data (Data)
 import GHC.Generics (Generic)
+import Control.Monad.Trans.Error (throwError)
+import Control.Monad
 
 
 type FileContent = String
@@ -73,14 +77,53 @@ showTable tableName = case Lib2.fetchTableFromDatabase tableName of
   Left errMsg -> return $ Left errMsg
 
 executeInsert :: Lib2.ParsedStatement -> Execution (Either ErrorMessage DataFrame)
-executeInsert (Lib2.InsertStatement tableName columns values) = do
-  loadedData <- loadFile tableName
-  case loadedData of
-    Left err -> return $ Left err
-    Right dataFrame -> do
-      saveTable "newTable" dataFrame
-      return $ Right dataFrame
-  
+executeInsert (Lib2.InsertStatement tableName insertColumns insertValues) = do
+  -- Get the existing DataFrame
+  result <- loadFile tableName
+  let existingColumns = case result of
+        Right df -> dataFrameColumns df
+        Left err -> []  -- or handle the error in an appropriate way
+  -- Lift existingColumns to the same scope
+  let checkColumnsExist = Data.List.all (`Data.List.elem` existingColumns) insertColumns
+
+  if checkColumnsExist
+    then do
+      -- Validate if the values match the types of columns
+      let expectedTypes = getColumnTypes existingColumns existingDataFrame
+      let validatedValues = validateValues expectedTypes insertValues
+      if Data.List.all isRight validatedValues
+        then do
+          -- If validation passes, add the new row to the DataFrame
+          let newRows = dataframeRows existingDataFrame ++ [map fromRight validatedValues]
+          return $ Right (DataFrame existingColumns newRows)
+        else return $ Left $ "Invalid values for columns: " ++ Data.List.concatMap (either id (const "") . Data.List.head) (filter isLeft validatedValues)
+    else return $ Left "Columns do not exist in the DataFrame"
+
+dataFrameColumns :: DataFrame -> [Column]
+dataFrameColumns (DataFrame columns _) = columns
+
+-- Function to get the column types for a list of column names
+getColumnTypes :: [ColumnName] -> DataFrame -> [ColumnType]
+getColumnTypes columnNames (DataFrame columns _) =
+  map (\(Column _ colType) -> colType) $ filter (\(Column name _) -> name `Data.List.elem` columnNames) columns
+
+
+-- Function to validate if values match the expected types
+validateValues :: [ColumnType] -> [[Value]] -> Either ErrorMessage [Row]
+validateValues expectedTypes values =
+  sequence $ map (zipWithM validateValue expectedTypes) values
+
+-- Function to validate a single value against its expected type
+validateValue :: ColumnType -> Value -> Either ErrorMessage Value
+validateValue expectedType value =
+  case (expectedType, value) of
+    (IntegerType, IntegerValue _) -> Right value
+    (StringType, StringValue _) -> Right value
+    (BoolType, BoolValue _) -> Right value
+    (_, NullValue) -> Right NullValue
+    _ -> Left $ "Invalid value type. Expected " ++ show expectedType ++ " but got " ++ show value
+
+--Right (InsertStatement "employees" ["col1","col2"] [[StringValue "abc",IntegerValue 1],[StringValue "def",NullValue]])
 
 executeSql :: String -> Execution (Either ErrorMessage DataFrame)
 executeSql sql = do
