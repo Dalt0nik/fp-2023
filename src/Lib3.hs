@@ -34,6 +34,8 @@ import Data.Data (Data)
 import GHC.Generics (Generic)
 import Control.Monad.Trans.Error (throwError)
 import Control.Monad
+import Data.Either (isRight)
+
 
 
 type FileContent = String
@@ -79,49 +81,57 @@ showTable tableName = case Lib2.fetchTableFromDatabase tableName of
 executeInsert :: Lib2.ParsedStatement -> Execution (Either ErrorMessage DataFrame)
 executeInsert (Lib2.InsertStatement tableName insertColumns insertValues) = do
   -- Get the existing DataFrame
-  result <- loadFile tableName
-  let existingColumns = case result of
-        Right df -> dataFrameColumns df
-        Left err -> []  -- or handle the error in an appropriate way
+  loadedDF <- loadFile tableName
+  let existingColumns = dataframeColumns loadedDF
   -- Lift existingColumns to the same scope
-  let checkColumnsExist = Data.List.all (`Data.List.elem` existingColumns) insertColumns
+  let checkColumnsExist = Data.List.all (\colName -> Column colName StringType `Data.List.elem` existingColumns) insertColumns
 
   if checkColumnsExist
     then do
       -- Validate if the values match the types of columns
-      let expectedTypes = getColumnTypes existingColumns existingDataFrame
-      let validatedValues = validateValues expectedTypes insertValues
-      if Data.List.all isRight validatedValues
+      let expectedTypes = getColumnTypes existingColumns --returns list of column types
+      let valuesAreValid = validateValues expectedTypes insertValues -- 
+      if valuesAreValid
         then do
           -- If validation passes, add the new row to the DataFrame
-          let newRows = dataframeRows existingDataFrame ++ [map fromRight validatedValues]
-          return $ Right (DataFrame existingColumns newRows)
-        else return $ Left $ "Invalid values for columns: " ++ Data.List.concatMap (either id (const "") . Data.List.head) (filter isLeft validatedValues)
+          let newRows = dataframeRows loadedDF ++ insertValues
+          let newDF = (DataFrame existingColumns newRows)
+          saveTable tableName newDF
+          return $ Right newDF
+        else return $ Left $ "Invalid values for columns"
     else return $ Left "Columns do not exist in the DataFrame"
+
+dataframeRows :: Either ErrorMessage DataFrame -> [Row]
+dataframeRows (Right (DataFrame _ rows)) = rows
+dataframeRows (Left _) = []  -- or handle the error in an appropriate way
+
+dataframeColumns :: Either ErrorMessage DataFrame -> [Column]
+dataframeColumns (Right (DataFrame columns _)) = columns
+dataframeColumns (Left _) = []  -- or handle the error in an appropriate way
+
 
 dataFrameColumns :: DataFrame -> [Column]
 dataFrameColumns (DataFrame columns _) = columns
 
 -- Function to get the column types for a list of column names
-getColumnTypes :: [ColumnName] -> DataFrame -> [ColumnType]
-getColumnTypes columnNames (DataFrame columns _) =
-  map (\(Column _ colType) -> colType) $ filter (\(Column name _) -> name `Data.List.elem` columnNames) columns
+getColumnTypes :: [Column] -> [ColumnType]
+getColumnTypes columns = map (\(Column _ colType) -> colType) columns
 
 
 -- Function to validate if values match the expected types
-validateValues :: [ColumnType] -> [[Value]] -> Either ErrorMessage [Row]
-validateValues expectedTypes values =
-  sequence $ map (zipWithM validateValue expectedTypes) values
+validateValues :: [ColumnType] -> [[Value]] -> Bool
+validateValues columnTypes values =
+  Data.List.all (\entry -> Data.List.length entry == Data.List.length columnTypes && Data.List.all id (zipWith validateValue columnTypes entry)) values
 
 -- Function to validate a single value against its expected type
-validateValue :: ColumnType -> Value -> Either ErrorMessage Value
-validateValue expectedType value =
-  case (expectedType, value) of
-    (IntegerType, IntegerValue _) -> Right value
-    (StringType, StringValue _) -> Right value
-    (BoolType, BoolValue _) -> Right value
-    (_, NullValue) -> Right NullValue
-    _ -> Left $ "Invalid value type. Expected " ++ show expectedType ++ " but got " ++ show value
+validateValue :: ColumnType -> Value -> Bool
+validateValue IntegerType (IntegerValue _) = True
+validateValue StringType (StringValue _) = True
+validateValue BoolType (BoolValue _) = True
+validateValue _ NullValue = True
+validateValue _ _ = False
+
+
 
 --Right (InsertStatement "employees" ["col1","col2"] [[StringValue "abc",IntegerValue 1],[StringValue "def",NullValue]])
 
