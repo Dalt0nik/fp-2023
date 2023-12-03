@@ -11,9 +11,12 @@ where
 import Control.Monad.Free (Free (..), liftF)
 import DataFrame (DataFrame (..), Row, Column (..), ColumnType (..), Value (..))
 import Data.Time ( UTCTime )
-import InMemoryTables (database, TableName)
-import Data.Char
+import InMemoryTables (database, TableName, tableEmployees)
 import Lib2 qualified
+import Data.Aeson 
+import qualified Data.ByteString.Lazy.Char8 as BSLC
+import Data.List (intercalate)
+import Data.Char
 
 
 type FileContent = String
@@ -88,7 +91,7 @@ executeSql sql =
       executeStatement parsedStatement
 
 
----------SERIALISATION----DESERIALIZATION------------------
+---------SERIALIZATION----DESERIALIZATION------------------
 
 -- Custom Serialization Functions
 
@@ -150,4 +153,3 @@ main = do
 
   loadedDataFrame <- load tableName -- Load from JSON
   print loadedDataFrame
-
