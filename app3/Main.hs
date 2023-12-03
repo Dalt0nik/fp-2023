@@ -78,7 +78,7 @@ runExecuteIO (Free step) = do
           case insertResult of
             Right df -> return $ f (Right df)
             Left errMsg -> return $ f (Left errMsg)
-            
+
         runStep (Lib3.ParseStatement input next) = do
           let parsedStatement = case Lib2.parseStatement input of
                 Right stmt -> stmt
@@ -88,10 +88,17 @@ runExecuteIO (Free step) = do
         runStep (Lib3.ExecuteStatement statement next) = do
           let executionResult = Lib2.executeStatement statement
           return $ next executionResult
+
         runStep (Lib3.LoadFile tableName next) = do
           let filePath = "db/" ++ tableName ++ ".json"
           fileContent <- Prelude.readFile filePath 
           return $ next $ Lib3.deserializeDataFrame fileContent
+
+        runStep (Lib3.SaveTable (tableName, dataFrame) next) = do
+          let filePath = "db/" ++ tableName ++ ".json"
+          let jsonStr = Lib3.serializeDataFrame dataFrame
+          Prelude.writeFile filePath jsonStr
+          return (next ())
 
 
 

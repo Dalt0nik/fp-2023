@@ -12,7 +12,8 @@ module Lib3
     executeInsert,
     save,
     load,
-    deserializeDataFrame
+    deserializeDataFrame,
+    serializeDataFrame
   )
 where
 
@@ -73,8 +74,12 @@ showTable tableName = case Lib2.fetchTableFromDatabase tableName of
 
 executeInsert :: Lib2.ParsedStatement -> Execution (Either ErrorMessage DataFrame)
 executeInsert (Lib2.InsertStatement tableName columns values) = do
-  dataFrame <- loadFile tableName
-  return $ dataFrame
+  loadedData <- loadFile tableName
+  case loadedData of
+    Left err -> return $ Left err
+    Right dataFrame -> do
+      saveTable "newTable" dataFrame
+      return $ Right dataFrame
   
 
 executeSql :: String -> Execution (Either ErrorMessage DataFrame)
