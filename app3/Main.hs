@@ -72,18 +72,22 @@ runExecuteIO (Free step) = do
         runStep (Lib3.ShowTable tableName f) = do
           tableResult <- runExecuteIO $ Lib3.showTable tableName
           return $ f tableResult
-        -- runStep (Lib3.ExecuteInsert tableName statement f) = do
-        --   tableResult <- runExecuteIO $ Lib3.executeInsert tableName statement
-        --   return $ f tableResult
+
+        runStep (Lib3.ExecuteInsert statement f) = do
+          insertResult <- runExecuteIO $ Lib3.executeInsert statement
+          case insertResult of
+            Right df -> return $ f (Right df)
+            Left errMsg -> return $ f (Left errMsg)
+            
         runStep (Lib3.ParseStatement input next) = do
           let parsedStatement = case Lib2.parseStatement input of
                 Right stmt -> stmt
                 Left err -> error ("Parsing error: " ++ err)  -- Errors don't work
           return $ next parsedStatement
+
         runStep (Lib3.ExecuteStatement statement next) = do
           let executionResult = Lib2.executeStatement statement
           return $ next executionResult
-
         runStep (Lib3.LoadFile tableName next) = do
           let filePath = "db/" ++ tableName ++ ".json"
           fileContent <- Prelude.readFile filePath 

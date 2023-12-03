@@ -9,7 +9,7 @@ module Lib3
     Execution,
     ExecutionAlgebra(..),
     showTable,
-    --executeInsert,
+    executeInsert,
     save,
     load,
     deserializeDataFrame
@@ -46,7 +46,7 @@ data ExecutionAlgebra next
   | ShowTable TableName (Either ErrorMessage DataFrame -> next)
   | ParseStatement String (Lib2.ParsedStatement -> next)
   | ExecuteStatement Lib2.ParsedStatement (Either ErrorMessage DataFrame -> next)
-  | ExecuteInsert TableName Lib2.ParsedStatement (Either ErrorMessage DataFrame -> next)
+  | ExecuteInsert Lib2.ParsedStatement (Either ErrorMessage DataFrame -> next)
   deriving Functor
 
 
@@ -89,9 +89,9 @@ executeSql sql = do
     _ | "select" `isPrefixOf` sql' -> do
         parsedStatement <- parseStatement sql
         executeStatement parsedStatement
-    -- _ | "insert" `isPrefixOf` sql' -> do
-    --     parsedStatement <- parseStatement sql
-    --     return $ Right executeInsert parsedStatement
+    _ | "insert" `isPrefixOf` sql' -> do
+        parsedStatement <- parseStatement sql
+        executeInsert parsedStatement
     -- _ | "update" `isPrefixOf` sql' -> do
     --     parsedStatement <- parseStatement sql
     --     parsedStatement
