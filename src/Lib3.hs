@@ -160,7 +160,7 @@ executeUpdate (Lib2.UpdateStatement tableName updates condition) = do
                 Nothing -> []  -- Handle the error case appropriately
           -- Update the DataFrame with new values
           let updatedRows = updateRows existingColumns updateColumnNames updates filteredRows
-          let newDF = DataFrame existingColumns updatedRows
+          let newDF = DataFrame existingColumns (replaceRows loadedDF filteredRows updatedRows)
 
           saveTable tableName newDF
           return $ Right newDF
@@ -205,10 +205,16 @@ removeDuplicates :: Eq a => [a] -> [a]
 removeDuplicates [] = []
 removeDuplicates (x:xs) = x : removeDuplicates (filter (/= x) xs)
 
+-- Function to replace old rows with updated rows
 replaceRows :: Either ErrorMessage DataFrame -> [Row] -> [Row] -> [Row]
-replaceRows (Right (DataFrame columns _)) oldRows newRows =
-  let remainingRows = removeDuplicates (oldRows ++ newRows)
-  in remainingRows
+replaceRows (Right (DataFrame columns oldRows)) oldFilteredRows newRows =
+  let indexedOldRows = Data.List.zip [0..] oldRows
+      indexedOldFilteredRows = Data.List.zip [0..] oldFilteredRows
+      rowsToRemove = map snd (indexedOldRows \\ indexedOldFilteredRows)
+      indexedNewRows = Data.List.zip [Data.List.length oldFilteredRows..] newRows
+      indexedMergedRows = indexedOldFilteredRows ++ indexedNewRows
+      sortedMergedRows = sortOn fst indexedMergedRows
+  in map snd (sortedMergedRows \\ Data.List.zip [0..] rowsToRemove)
 replaceRows _ oldRows _ = oldRows
 
 
