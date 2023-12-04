@@ -173,24 +173,32 @@ extractDataFrame _ = Nothing
 
 -- Function to update a single row based on the provided updates
 updateRows :: [Column] -> [ColumnName] -> [(ColumnName, Value)] -> [Row] -> [Row]
-updateRows columns columnNames updates rows =
-  map (\row -> updateValues columns columnNames updates row) rows
+updateRows columns colNames updates rows =
+  map (updateValues columns colNames updates) rows
   where
     updateValues :: [Column] -> [ColumnName] -> [(ColumnName, Value)] -> Row -> Row
     updateValues columns colNames updates' row =
-      map (\(colName, colValue) -> if colName `Data.List.elem` colNames then colValue else getOriginalValue columns colName row updates') updates'
+      map (\col -> case lookup (getColumnName col) updates' of
+                     Just updatedValue -> updatedValue
+                     Nothing -> getOriginalValue col row updates') columns
 
-    getOriginalValue :: [Column] -> ColumnName -> Row -> [(ColumnName, Value)] -> Value
-    getOriginalValue columns colName row' updates' =
-      case lookup colName updates' of
+    getOriginalValue :: Column -> Row -> [(ColumnName, Value)] -> Value
+    getOriginalValue col row' updates'' =
+      case lookup (getColumnName col) updates'' of
         Just updatedValue -> updatedValue
-        Nothing -> getColumnValue columns colName row'
+        Nothing -> getColumnValue col row'
 
-    getColumnValue :: [Column] -> ColumnName -> Row -> Value
-    getColumnValue columns colName row' =
-      case Lib2.findColumnIndex columns colName of
+    getColumnValue :: Column -> Row -> Value
+    getColumnValue col row' =
+      case Lib2.findColumnIndex columns (getColumnName col) of
         Just colIndex -> row' !! colIndex
         Nothing -> error "Column not found in dataframe"  -- Handle the error case appropriately
+
+    getColumnName :: Column -> ColumnName
+    getColumnName (Column name _) = name
+
+
+
         
 -- Function to replace old rows with updated rows
 removeDuplicates :: Eq a => [a] -> [a]
