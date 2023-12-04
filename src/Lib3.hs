@@ -79,13 +79,15 @@ showTable tableName = case Lib2.fetchTableFromDatabase tableName of
   Left errMsg -> return $ Left errMsg
 
 executeInsert :: Lib2.ParsedStatement -> Execution (Either ErrorMessage DataFrame)
-executeInsert (Lib2.InsertStatement tableName insertColumns insertValues) = do
+executeInsert (Lib2.InsertStatement tableName insertColumns insertValues) = do --insertColumns is a string
   -- Get the existing DataFrame
   loadedDF <- loadFile tableName
   let existingColumns = dataframeColumns loadedDF
   -- Lift existingColumns to the same scope
-  let checkColumnsExist = Data.List.all (\colName -> Column colName StringType `Data.List.elem` existingColumns) insertColumns
+--  let checkColumnsExist = Data.List.all (\colName -> Column colName StringType `Data.List.elem` existingColumns) insertColumns
+  let checkColumnsExist = Data.List.all (`Data.List.elem` map (\(Column name _) -> name) existingColumns) insertColumns
 
+-----------------------------------------------------------string----
   if checkColumnsExist
     then do
       -- Validate if the values match the types of columns
@@ -109,9 +111,6 @@ dataframeColumns :: Either ErrorMessage DataFrame -> [Column]
 dataframeColumns (Right (DataFrame columns _)) = columns
 dataframeColumns (Left _) = []  -- or handle the error in an appropriate way
 
-
-dataFrameColumns :: DataFrame -> [Column]
-dataFrameColumns (DataFrame columns _) = columns
 
 -- Function to get the column types for a list of column names
 getColumnTypes :: [Column] -> [ColumnType]
