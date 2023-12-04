@@ -83,12 +83,11 @@ executeInsert (Lib2.InsertStatement tableName insertColumns insertValues) = do -
   -- Get the existing DataFrame
   loadedDF <- loadFile tableName
   let existingColumns = dataframeColumns loadedDF
-  -- Lift existingColumns to the same scope
 --  let checkColumnsExist = Data.List.all (\colName -> Column colName StringType `Data.List.elem` existingColumns) insertColumns
-  let checkColumnsExist = Data.List.all (`Data.List.elem` map (\(Column name _) -> name) existingColumns) insertColumns
+--validate if provided column names are the same as column names in a dataframe
+  let allColumnsExistInDataFrame = Data.List.all (`Data.List.elem` map (\(Column name _) -> name) existingColumns) insertColumns
 
------------------------------------------------------------string----
-  if checkColumnsExist
+  if allColumnsExistInDataFrame
     then do
       -- Validate if the values match the types of columns
       let expectedTypes = getColumnTypes existingColumns --returns list of column types
@@ -105,11 +104,11 @@ executeInsert (Lib2.InsertStatement tableName insertColumns insertValues) = do -
 
 dataframeRows :: Either ErrorMessage DataFrame -> [Row]
 dataframeRows (Right (DataFrame _ rows)) = rows
-dataframeRows (Left _) = []  -- or handle the error in an appropriate way
+dataframeRows (Left _) = []  -- todo
 
 dataframeColumns :: Either ErrorMessage DataFrame -> [Column]
 dataframeColumns (Right (DataFrame columns _)) = columns
-dataframeColumns (Left _) = []  -- or handle the error in an appropriate way
+dataframeColumns (Left _) = []  -- todo
 
 
 -- Function to get the column types for a list of column names
