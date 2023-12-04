@@ -167,6 +167,18 @@ executeUpdate (Lib2.UpdateStatement tableName updates condition) = do
         else return $ Left $ "Invalid values for columns"
     else return $ Left "Columns to update do not exist in the DataFrame"
 
+-- Function to replace old rows with updated rows
+replaceRows :: Either ErrorMessage DataFrame -> [Row] -> [Row] -> [Row]
+replaceRows (Right (DataFrame columns oldRows)) oldFilteredRows newRows =
+  let indexedOldRows = Data.List.zip [1..] oldRows
+      indexedOldFilteredRows = [(i, row) | (i, row) <- indexedOldRows, row `Data.List.elem` oldFilteredRows]
+      indexedNewRows = Data.List.zip (map fst indexedOldFilteredRows) newRows
+      combinedRows = map (\(i, oldRow) ->
+                            case Data.List.find (\(j, _) -> i == j) indexedNewRows of
+                              Just (_, newRow) -> (i, newRow)
+                              Nothing -> (i, oldRow)) indexedOldRows
+  in map snd combinedRows
+  
 extractDataFrame :: Either ErrorMessage DataFrame -> Maybe DataFrame
 extractDataFrame (Right df) = Just df
 extractDataFrame _ = Nothing
@@ -205,17 +217,6 @@ removeDuplicates :: Eq a => [a] -> [a]
 removeDuplicates [] = []
 removeDuplicates (x:xs) = x : removeDuplicates (filter (/= x) xs)
 
--- Function to replace old rows with updated rows
-replaceRows :: Either ErrorMessage DataFrame -> [Row] -> [Row] -> [Row]
-replaceRows (Right (DataFrame columns oldRows)) oldFilteredRows newRows =
-  let indexedOldRows = Data.List.zip [0..] oldRows
-      indexedOldFilteredRows = Data.List.zip [0..] oldFilteredRows
-      rowsToRemove = map snd (indexedOldRows \\ indexedOldFilteredRows)
-      indexedNewRows = Data.List.zip [Data.List.length oldFilteredRows..] newRows
-      indexedMergedRows = indexedOldFilteredRows ++ indexedNewRows
-      sortedMergedRows = sortOn fst indexedMergedRows
-  in map snd (sortedMergedRows \\ Data.List.zip [0..] rowsToRemove)
-replaceRows _ oldRows _ = oldRows
 
 
 
