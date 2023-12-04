@@ -4,6 +4,8 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# OPTIONS_GHC -Wno-incomplete-patterns #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
+{-# LANGUAGE ImportQualifiedPost #-}
+
 
 
 module Lib3
@@ -129,6 +131,79 @@ validateValue BoolType (BoolValue _) = True
 validateValue _ NullValue = True
 validateValue _ _ = False
 
+--executeUpdate :: Lib2.ParsedStatement -> Execution (Either ErrorMessage DataFrame)
+--  UpdateStatement TableName [(ColumnName, Value)] (Maybe Condition)
+--executeInsert (Lib2.InsertStatement tableName insertColumns insertValues) = do
+executeUpdate :: Lib2.ParsedStatement -> Execution (Either ErrorMessage DataFrame)
+executeUpdate (Lib2.UpdateStatement tableName updates condition) = do
+  -- Get the existing DataFrame
+  loadedDF <- loadFile tableName
+  let existingColumns = dataframeColumns loadedDF
+
+  -- Check if columns to update exist in the DataFrame
+  let updateColumnNames = map fst updates
+  let allColumnsExistInDataFrame = Data.List.all (`Data.List.elem` map (\(Column name _) -> name) existingColumns) updateColumnNames
+
+  if allColumnsExistInDataFrame
+    then do
+      -- Validate if values to update are of proper type
+      let updatedValues = map snd updates
+      let expectedTypes = getColumnTypes existingColumns
+      let valuesAreValid = validateValues expectedTypes [updatedValues]
+
+      if True --valuesAreValid
+        then do
+          -- Filter rows based on the condition
+          let maybeDataFrame = extractDataFrame loadedDF
+          let filteredRows = case maybeDataFrame of
+                Just df -> Lib2.filterRows existingColumns df condition --returns [Row]
+                Nothing -> []  -- Handle the error case appropriately
+          -- Update the DataFrame with new values
+          let updatedRows = updateRows existingColumns updateColumnNames updates filteredRows
+          let newDF = DataFrame existingColumns updatedRows
+
+          saveTable tableName newDF
+          return $ Right newDF
+        else return $ Left $ "Invalid values for columns"
+    else return $ Left "Columns to update do not exist in the DataFrame"
+
+extractDataFrame :: Either ErrorMessage DataFrame -> Maybe DataFrame
+extractDataFrame (Right df) = Just df
+extractDataFrame _ = Nothing
+
+-- Function to update a single row based on the provided updates
+updateRows :: [Column] -> [ColumnName] -> [(ColumnName, Value)] -> [Row] -> [Row]
+updateRows columns columnNames updates rows =
+  map (\row -> updateValues columns columnNames updates row) rows
+  where
+    updateValues :: [Column] -> [ColumnName] -> [(ColumnName, Value)] -> Row -> Row
+    updateValues columns colNames updates' row =
+      map (\(colName, colValue) -> if colName `Data.List.elem` colNames then colValue else getOriginalValue columns colName row updates') updates'
+
+    getOriginalValue :: [Column] -> ColumnName -> Row -> [(ColumnName, Value)] -> Value
+    getOriginalValue columns colName row' updates' =
+      case lookup colName updates' of
+        Just updatedValue -> updatedValue
+        Nothing -> getColumnValue columns colName row'
+
+    getColumnValue :: [Column] -> ColumnName -> Row -> Value
+    getColumnValue columns colName row' =
+      case Lib2.findColumnIndex columns colName of
+        Just colIndex -> row' !! colIndex
+        Nothing -> error "Column not found in dataframe"  -- Handle the error case appropriately
+        
+-- Function to replace old rows with updated rows
+removeDuplicates :: Eq a => [a] -> [a]
+removeDuplicates [] = []
+removeDuplicates (x:xs) = x : removeDuplicates (filter (/= x) xs)
+
+replaceRows :: Either ErrorMessage DataFrame -> [Row] -> [Row] -> [Row]
+replaceRows (Right (DataFrame columns _)) oldRows newRows =
+  let remainingRows = removeDuplicates (oldRows ++ newRows)
+  in remainingRows
+replaceRows _ oldRows _ = oldRows
+
+
 
 
 --Right (InsertStatement "employees" ["col1","col2"] [[StringValue "abc",IntegerValue 1],[StringValue "def",NullValue]])
@@ -148,9 +223,9 @@ executeSql sql = do
     _ | "insert" `isPrefixOf` sql' -> do
         parsedStatement <- parseStatement sql
         executeInsert parsedStatement
-    -- _ | "update" `isPrefixOf` sql' -> do
-    --     parsedStatement <- parseStatement sql
-    --     parsedStatement
+    _ | "update" `isPrefixOf` sql' -> do
+        parsedStatement <- parseStatement sql
+        executeUpdate parsedStatement
     -- _ | "delete" `isPrefixOf` sql' -> do
     --     parsedStatement <- parseStatement sql
     --     parsedStatement
