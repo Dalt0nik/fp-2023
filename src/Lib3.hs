@@ -225,6 +225,7 @@ updateRows columns colNames updates rows =
 --DeleteStatement "employees" (Just (Comparison (Where "surname" LessThanOrEqual "Dl") []))
 --delete from employees where surname <= 'Dl';
 --DeleteStatement TableName (Maybe Condition) 
+-- Function to execute a DELETE statement
 executeDelete :: Lib2.ParsedStatement -> Execution (Either ErrorMessage DataFrame)
 executeDelete (Lib2.DeleteStatement tableName condition) = do
   -- Get the existing DataFrame
@@ -236,13 +237,18 @@ executeDelete (Lib2.DeleteStatement tableName condition) = do
   let filteredRows = case maybeDataFrame of
         Just df -> Lib2.filterRows existingColumns df condition
         Nothing -> []  -- Handle the error case appropriately
-  
 
   -- Delete the DataFrame with filtered rows
-  let newDF = DataFrame existingColumns (replaceRows loadedDF filteredRows [])
+  let newRows = removeFilteredRows (dataframeRows loadedDF) filteredRows
+  let newDF = DataFrame existingColumns newRows
 
-  saveTable tableName newDF
+  saveTable tableName newDF -- this line causes fp2023-manipulate: db/employees.json: withFile: resource busy (file is locked) error
   return $ Right newDF
+  where
+    -- Function to remove rows based on filtering
+    removeFilteredRows :: [Row] -> [Row] -> [Row]
+    removeFilteredRows rows filtered = filter (not . (`Data.List.elem` filtered)) rows
+
 
 
 executeSql :: String -> Execution (Either ErrorMessage DataFrame)
