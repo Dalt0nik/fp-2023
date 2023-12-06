@@ -85,7 +85,6 @@ executeInsert (Lib2.InsertStatement tableName insertColumns insertValues) = do -
   -- Get the existing DataFrame
   loadedDF <- loadFile tableName
   let existingColumns = dataframeColumns loadedDF
---  let checkColumnsExist = Data.List.all (\colName -> Column colName StringType `Data.List.elem` existingColumns) insertColumns
 --validate if provided column names are the same as column names in a dataframe
   let allColumnsExistInDataFrame = Data.List.all (`Data.List.elem` map (\(Column name _) -> name) existingColumns) insertColumns
 
@@ -93,7 +92,7 @@ executeInsert (Lib2.InsertStatement tableName insertColumns insertValues) = do -
     then do
       -- Validate if the values match the types of columns
       let expectedTypes = getColumnTypes existingColumns --returns list of column types
-      let valuesAreValid = validateValues expectedTypes insertValues -- 
+      let valuesAreValid = validateValuesForInsert expectedTypes insertValues -- 
       if valuesAreValid
         then do
           -- If validation passes, add the new row to the DataFrame
@@ -119,8 +118,8 @@ getColumnTypes columns = map (\(Column _ colType) -> colType) columns
 
 
 -- Function to validate if values match the expected types
-validateValues :: [ColumnType] -> [[Value]] -> Bool
-validateValues columnTypes values =
+validateValuesForInsert :: [ColumnType] -> [[Value]] -> Bool
+validateValuesForInsert columnTypes values =
   Data.List.all (\entry -> Data.List.length entry == Data.List.length columnTypes && Data.List.all id (zipWith validateValue columnTypes entry)) values
 
 -- Function to validate a single value against its expected type
@@ -132,8 +131,7 @@ validateValue _ NullValue = True
 validateValue _ _ = False
 
 --executeUpdate :: Lib2.ParsedStatement -> Execution (Either ErrorMessage DataFrame)
---  UpdateStatement TableName [(ColumnName, Value)] (Maybe Condition)
---executeInsert (Lib2.InsertStatement tableName insertColumns insertValues) = do
+--UpdateStatement TableName [(ColumnName, Value)] (Maybe Condition)
 executeUpdate :: Lib2.ParsedStatement -> Execution (Either ErrorMessage DataFrame)
 executeUpdate (Lib2.UpdateStatement tableName updates condition) = do
   -- Get the existing DataFrame
@@ -147,11 +145,10 @@ executeUpdate (Lib2.UpdateStatement tableName updates condition) = do
   if allColumnsExistInDataFrame
     then do
       -- Validate if values to update are of proper type
-      let updatedValues = map snd updates
-      let expectedTypes = getColumnTypes existingColumns
-      let valuesAreValid = validateValues expectedTypes [updatedValues]
+      let valuesAreValid = validateValuesForUpdate existingColumns updates
 
-      if True --valuesAreValid
+
+      if valuesAreValid
         then do
           -- Filter rows based on the condition
           let maybeDataFrame = extractDataFrame loadedDF
@@ -166,6 +163,23 @@ executeUpdate (Lib2.UpdateStatement tableName updates condition) = do
           return $ Right newDF
         else return $ Left $ "Invalid values for columns"
     else return $ Left "Columns to update do not exist in the DataFrame"
+
+validateValuesForUpdate :: [Column] -> [(ColumnName, Value)] -> Bool
+validateValuesForUpdate columns updates =
+  Data.List.all isValidUpdate updates
+  where
+    isValidUpdate :: (ColumnName, Value) -> Bool
+    isValidUpdate (colName, colValue) =
+      case findColumnType colName columns of
+        Just colType -> validateValue colType colValue
+        Nothing -> False
+
+    findColumnType :: ColumnName -> [Column] -> Maybe ColumnType
+    findColumnType name cols = case Data.List.find (\(Column colName _) -> colName == name) cols of
+      Just (Column _ colType) -> Just colType
+      Nothing -> Nothing
+
+
 
 -- Function to replace old rows with updated rows
 replaceRows :: Either ErrorMessage DataFrame -> [Row] -> [Row] -> [Row]
