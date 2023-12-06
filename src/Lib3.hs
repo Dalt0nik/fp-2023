@@ -13,7 +13,7 @@ module Lib3
     Execution,
     ExecutionAlgebra(..),
     showTable,
-    executeInsert,
+    executeInsert, --i think we don't need to export this
     --save,
     --load,
     deserializeDataFrame,
@@ -74,8 +74,8 @@ showTable tableName = case Lib2.fetchTableFromDatabase tableName of
   Right (_, table) -> return $ Right table
   Left errMsg -> return $ Left errMsg
 
---InsertStatement TableName [ColumnName] [[Value]]
 --insert into employees (id, name, surname) values (69, 'a','b');
+--InsertStatement TableName [ColumnName] [[Value]]
 --InsertStatement "employees" ["id","name","surname"] [[IntegerValue 69,StringValue "a",StringValue "b"]]
 executeInsert :: Lib2.ParsedStatement -> Execution (Either ErrorMessage DataFrame)
 executeInsert (Lib2.InsertStatement tableName insertColumns insertValues) = do --insertColumns is a string
@@ -127,9 +127,10 @@ validateValue BoolType (BoolValue _) = True
 validateValue _ NullValue = True
 validateValue _ _ = False
 
---executeUpdate :: Lib2.ParsedStatement -> Execution (Either ErrorMessage DataFrame)
---UpdateStatement TableName [(ColumnName, Value)] (Maybe Condition)
 --update employees set name = 'ar', id = 100 where surname <= 'Dl';
+--UpdateStatement TableName [(ColumnName, Value)] (Maybe Condition)
+--executeUpdate :: Lib2.ParsedStatement -> Execution (Either ErrorMessage DataFrame)
+
 executeUpdate :: Lib2.ParsedStatement -> Execution (Either ErrorMessage DataFrame)
 executeUpdate (Lib2.UpdateStatement tableName updates condition) = do
   -- Get the existing DataFrame
@@ -224,6 +225,25 @@ updateRows columns colNames updates rows =
 --DeleteStatement "employees" (Just (Comparison (Where "surname" LessThanOrEqual "Dl") []))
 --delete from employees where surname <= 'Dl';
 --DeleteStatement TableName (Maybe Condition) 
+executeDelete :: Lib2.ParsedStatement -> Execution (Either ErrorMessage DataFrame)
+executeDelete (Lib2.DeleteStatement tableName condition) = do
+  -- Get the existing DataFrame
+  loadedDF <- loadFile tableName
+  let existingColumns = dataframeColumns loadedDF
+
+  -- Filter rows based on the condition
+  let maybeDataFrame = extractDataFrame loadedDF
+  let filteredRows = case maybeDataFrame of
+        Just df -> Lib2.filterRows existingColumns df condition
+        Nothing -> []  -- Handle the error case appropriately
+  
+
+  -- Delete the DataFrame with filtered rows
+  let newDF = DataFrame existingColumns (replaceRows loadedDF filteredRows [])
+
+  saveTable tableName newDF
+  return $ Right newDF
+
 
 executeSql :: String -> Execution (Either ErrorMessage DataFrame)
 executeSql sql = do
@@ -243,9 +263,9 @@ executeSql sql = do
     _ | "update" `isPrefixOf` sql' -> do
         parsedStatement <- parseStatement sql
         executeUpdate parsedStatement
-    -- _ | "delete" `isPrefixOf` sql' -> do
-    --     parsedStatement <- parseStatement sql
-    --     parsedStatement
+    _ | "delete" `isPrefixOf` sql' -> do
+        parsedStatement <- parseStatement sql
+        executeDelete parsedStatement
     _ -> do
       return $ Left "command not found"
       
@@ -291,7 +311,7 @@ instance FromJSON DataFrame.Value
 
 instance FromJSON DataFrame
 --instance ToJSON DataFrame
-
+--we can delete this block of code but let's keep it for a while 
 -- save :: DataFrame -> TableName -> IO() --we devided this function into 2 functions and actually we are doing this in the main interpeter
 -- save df tableName = do
 --   let filePath = "db/" ++ tableName ++ ".json"

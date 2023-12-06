@@ -73,7 +73,7 @@ runExecuteIO (Free step) = do
           tableResult <- runExecuteIO $ Lib3.showTable tableName
           return $ f tableResult
 
-        runStep (Lib3.ExecuteInsert statement f) = do
+        runStep (Lib3.ExecuteInsert statement f) = do --i think this is redundant
           insertResult <- runExecuteIO $ Lib3.executeInsert statement
           case insertResult of
             Right df -> return $ f (Right df)
