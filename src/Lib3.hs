@@ -14,8 +14,8 @@ module Lib3
     ExecutionAlgebra(..),
     showTable,
     executeInsert,
-    save,
-    load,
+    --save,
+    --load,
     deserializeDataFrame,
     serializeDataFrame
   )
@@ -24,19 +24,13 @@ where
 import Control.Monad.Free (Free (..), liftF)
 import DataFrame (DataFrame (..), Row, Column (..), ColumnType (..), Value (..))
 import Data.Time ( UTCTime )
-import InMemoryTables (database, TableName, tableEmployees)
+import InMemoryTables (TableName, tableEmployees)
 import Lib2 qualified
 import Data.Aeson hiding (Value) 
 import qualified Data.ByteString.Lazy.Char8 as BSLC
 import Data.List
 import Data.Char
-import Data.ByteString hiding (zipWith, map, isPrefixOf, filter)
 import Lib2 (ParsedStatement(InsertStatement))
-import Data.Data (Data)
-import GHC.Generics (Generic)
-import Control.Monad.Trans.Error (throwError)
-import Control.Monad
-import Data.Either (isRight)
 
 
 
@@ -80,6 +74,9 @@ showTable tableName = case Lib2.fetchTableFromDatabase tableName of
   Right (_, table) -> return $ Right table
   Left errMsg -> return $ Left errMsg
 
+--InsertStatement TableName [ColumnName] [[Value]]
+--insert into employees (id, name, surname) values (69, 'a','b');
+--InsertStatement "employees" ["id","name","surname"] [[IntegerValue 69,StringValue "a",StringValue "b"]]
 executeInsert :: Lib2.ParsedStatement -> Execution (Either ErrorMessage DataFrame)
 executeInsert (Lib2.InsertStatement tableName insertColumns insertValues) = do --insertColumns is a string
   -- Get the existing DataFrame
@@ -132,6 +129,7 @@ validateValue _ _ = False
 
 --executeUpdate :: Lib2.ParsedStatement -> Execution (Either ErrorMessage DataFrame)
 --UpdateStatement TableName [(ColumnName, Value)] (Maybe Condition)
+--update employees set name = 'ar', id = 100 where surname <= 'Dl';
 executeUpdate :: Lib2.ParsedStatement -> Execution (Either ErrorMessage DataFrame)
 executeUpdate (Lib2.UpdateStatement tableName updates condition) = do
   -- Get the existing DataFrame
@@ -154,7 +152,7 @@ executeUpdate (Lib2.UpdateStatement tableName updates condition) = do
           let maybeDataFrame = extractDataFrame loadedDF
           let filteredRows = case maybeDataFrame of
                 Just df -> Lib2.filterRows existingColumns df condition --returns [Row]
-                Nothing -> []  -- Handle the error case appropriately
+                Nothing -> []  
           -- Update the DataFrame with new values
           let updatedRows = updateRows existingColumns updateColumnNames updates filteredRows
           let newDF = DataFrame existingColumns (replaceRows loadedDF filteredRows updatedRows)
@@ -178,7 +176,6 @@ validateValuesForUpdate columns updates =
     findColumnType name cols = case Data.List.find (\(Column colName _) -> colName == name) cols of
       Just (Column _ colType) -> Just colType
       Nothing -> Nothing
-
 
 
 -- Function to replace old rows with updated rows
@@ -224,18 +221,9 @@ updateRows columns colNames updates rows =
     getColumnName (Column name _) = name
 
 
-
-        
--- Function to replace old rows with updated rows
-removeDuplicates :: Eq a => [a] -> [a]
-removeDuplicates [] = []
-removeDuplicates (x:xs) = x : removeDuplicates (filter (/= x) xs)
-
-
-
-
-
---Right (InsertStatement "employees" ["col1","col2"] [[StringValue "abc",IntegerValue 1],[StringValue "def",NullValue]])
+--DeleteStatement "employees" (Just (Comparison (Where "surname" LessThanOrEqual "Dl") []))
+--delete from employees where surname <= 'Dl';
+--DeleteStatement TableName (Maybe Condition) 
 
 executeSql :: String -> Execution (Either ErrorMessage DataFrame)
 executeSql sql = do
@@ -284,14 +272,14 @@ serializeValue NullValue              = "null"
 
 serializeRow :: Row -> String
 serializeRow row = "[" ++ Data.List.intercalate ", " (Prelude.map serializeValue row) ++ "]"
-
+--our custom df serialization, we call it in the main interpreter
 serializeDataFrame :: DataFrame -> String
 serializeDataFrame (DataFrame columns rows) =
   "[[ " ++ Data.List.intercalate ", " (Prelude.map serializeColumn columns) ++ " ], " ++
   "[ " ++ Data.List.intercalate ", " (Prelude.map serializeRow rows) ++ " ]]"
 
 -- Deserialization Instances
---instance ToJSON we nee if we want to use aeson encode function. so it's kinda our backup plan if something goes wrong
+--instance ToJSON we nee if we want to use aeson `encode` function. so it's kinda our backup plan if something goes wrong
 instance FromJSON ColumnType
 --instance ToJSON ColumnType
 
@@ -304,13 +292,13 @@ instance FromJSON DataFrame.Value
 instance FromJSON DataFrame
 --instance ToJSON DataFrame
 
-save :: DataFrame -> TableName -> IO()
-save df tableName = do
-  let filePath = "db/" ++ tableName ++ ".json"
-  let jsonStr = serializeDataFrame df
-  Prelude.writeFile filePath jsonStr
+-- save :: DataFrame -> TableName -> IO() --we devided this function into 2 functions and actually we are doing this in the main interpeter
+-- save df tableName = do
+--   let filePath = "db/" ++ tableName ++ ".json"
+--   let jsonStr = serializeDataFrame df 
+--   Prelude.writeFile filePath jsonStr
 
--- load :: TableName -> IO DataFrame
+-- load :: TableName -> IO DataFrame -- we devided this function into 2 functions, load and deserializeDataFrame
 -- load tableName = do
 --   let filePath = "db/" ++ tableName ++ ".json"
 --   jsonStr <- Prelude.readFile filePath
@@ -318,22 +306,14 @@ save df tableName = do
 --     Right df -> return df
 --     Left err -> error $ "Failed to decode JSON: " ++ err
 
-load :: TableName -> IO FileContent
-load tableName = do
-  let filePath = "db/" ++ tableName ++ ".json"
-  Prelude.readFile filePath    
+-- load :: TableName -> IO FileContent --we are doing this in the main interpeter though
+-- load tableName = do
+--   let filePath = "db/" ++ tableName ++ ".json"
+--   Prelude.readFile filePath    
 
 deserializeDataFrame :: FileContent -> Either ErrorMessage DataFrame
 deserializeDataFrame jsonStr =
   case eitherDecode (BSLC.pack jsonStr) of
     Right df -> Right df
     Left err -> Left $ "Failed to decode JSON: " ++ err
-
-main :: IO()
-main = do
-  let (tableName, df) = tableEmployees
-  save df tableName --save to json
-
-  loadedDataFrame <- load tableName -- Load from JSON
-  print loadedDataFrame
 
