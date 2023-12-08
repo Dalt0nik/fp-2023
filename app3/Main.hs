@@ -7,7 +7,6 @@ import Control.Monad (when)
 import Data.Functor((<&>))
 import Data.Time ( UTCTime, getCurrentTime )
 import Data.List qualified as L
-import System.Directory (removeFile, doesFileExist)
 import System.IO (withFile, IOMode(ReadMode, WriteMode), hGetContents, hPutStrLn, openFile, hClose)
 import Control.Exception (bracket, evaluate)
 import Lib1 qualified
