@@ -316,26 +316,7 @@ instance FromJSON DataFrame.Value
 --instance ToJSON DataFrame.Value
 
 instance FromJSON DataFrame
---instance ToJSON DataFrame
---we can delete this block of code but let's keep it for a while 
--- save :: DataFrame -> TableName -> IO() --we devided this function into 2 functions and actually we are doing this in the main interpeter
--- save df tableName = do
---   let filePath = "db/" ++ tableName ++ ".json"
---   let jsonStr = serializeDataFrame df 
---   Prelude.writeFile filePath jsonStr
-
--- load :: TableName -> IO DataFrame -- we devided this function into 2 functions, load and deserializeDataFrame
--- load tableName = do
---   let filePath = "db/" ++ tableName ++ ".json"
---   jsonStr <- Prelude.readFile filePath
---   case eitherDecode (BSLC.pack jsonStr) of --decode (eitherDecode in our case) takes a ByteStream as an arguments, that's why we need to convert jsonStr into byteStream
---     Right df -> return df
---     Left err -> error $ "Failed to decode JSON: " ++ err
-
--- load :: TableName -> IO FileContent --we are doing this in the main interpeter though
--- load tableName = do
---   let filePath = "db/" ++ tableName ++ ".json"
---   Prelude.readFile filePath    
+  
 
 deserializeDataFrame :: FileContent -> Either ErrorMessage DataFrame
 deserializeDataFrame jsonStr =

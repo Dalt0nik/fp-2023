@@ -2,10 +2,14 @@ module Main (main) where
 
 import Control.Monad.IO.Class (MonadIO (liftIO))
 import Control.Monad.Free (Free (..))
+import Control.Monad (when)
 
 import Data.Functor((<&>))
 import Data.Time ( UTCTime, getCurrentTime )
 import Data.List qualified as L
+import System.Directory (removeFile, doesFileExist)
+import System.IO (withFile, IOMode(ReadMode, WriteMode), hGetContents, hPutStrLn, openFile, hClose)
+import Control.Exception (bracket, evaluate)
 import Lib1 qualified
 import Lib2 qualified
 import Lib3 qualified
@@ -89,10 +93,25 @@ runExecuteIO (Free step) = do
           let executionResult = Lib2.executeStatement statement
           return $ next executionResult
 
+
+        -- OLD WAY
+        -- runStep (Lib3.LoadFile tableName next) = do
+        --   let filePath = "db/" ++ tableName ++ ".json"
+        --   fileContent <- Prelude.readFile filePath 
+        --   return $ next $ Lib3.deserializeDataFrame fileContent
+
         runStep (Lib3.LoadFile tableName next) = do
           let filePath = "db/" ++ tableName ++ ".json"
-          fileContent <- Prelude.readFile filePath 
-          return $ next $ Lib3.deserializeDataFrame fileContent
+          contentResult <- bracket
+              (openFile filePath ReadMode)
+              hClose
+              (\handle -> do
+                  fileContent <- hGetContents handle
+                  evaluate (length fileContent)
+                  return $ next $ Lib3.deserializeDataFrame fileContent
+              )
+          return contentResult
+
 
         runStep (Lib3.SaveTable (tableName, dataFrame) next) = do
           let filePath = "db/" ++ tableName ++ ".json"
