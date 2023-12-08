@@ -274,7 +274,6 @@ executeSql sql = do
         executeDelete parsedStatement
     _ -> do
       return $ Left "command not found"
-      
 
 
 ---------SERIALISATION----DESERIALIZATION------------------

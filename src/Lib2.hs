@@ -2,6 +2,7 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Redundant if" #-}
 {-# LANGUAGE InstanceSigs #-}
+{-# HLINT ignore "Use lambda-case" #-}
 
 module Lib2 where
 
@@ -11,6 +12,7 @@ import Control.Applicative((<|>), empty, Alternative (some, many))
 import Data.Char(isAlphaNum, toLower, isSpace, isDigit, isAlpha)
 import Data.List
 import Data.Maybe
+import Debug.Trace
 import Text.Read (Lexeme(String))
 
 type ErrorMessage = String
@@ -27,14 +29,14 @@ data Operator = Equals
 
 data LogicalOp = Or deriving (Show, Eq)
 
-data WhereAtomicStatement = Where ColumnName Operator String deriving (Show, Eq)
+data WhereAtomicStatement = Where (TableName, ColumnName) Operator (Either (TableName, ColumnName) Value) deriving (Show, Eq)
 
 data Condition
   = Comparison WhereAtomicStatement [(LogicalOp, WhereAtomicStatement)] deriving (Show, Eq) -- string aka column
 
 
 data Columns = All
-  | SelectedColumns [String]
+  | SelectedColumns [(TableName, ColumnName)]
   | Aggregation [(AggregateFunction, String)] deriving (Show, Eq) -- string aka column 
 
 type ColumnName = String
@@ -42,12 +44,10 @@ type ColumnName = String
 data ParsedStatement
   = ShowTablesStatement
   | ShowTableStatement TableName
-  | SelectStatement Columns TableName (Maybe Condition)
+  | SelectStatement Columns [TableName] (Maybe Condition)
   | InsertStatement TableName [ColumnName] [[Value]]
   | UpdateStatement TableName [(ColumnName, Value)] (Maybe Condition)
   | DeleteStatement TableName (Maybe Condition) deriving (Show, Eq)-- Condition
-
-
 
 newtype Parser a = Parser {
     runParser :: String -> Either ErrorMessage (String, a)
@@ -116,61 +116,63 @@ parseStatement input = do
         Right parsedDelete
     _ -> Left "Not implemented: parseStatement"
 
-
 parseSelectQuery :: String -> Either ErrorMessage ParsedStatement
 parseSelectQuery input = do
     (input', columns) <- parseColumnListQuery input
-    (skip,_) <- runParser parseWhitespace input'
-    (input'', tableName) <- parseFromClause skip
+    (skip, _) <- runParser parseWhitespace input'
+    (input'', tableNames) <- parseFromClause skip
     (input''', conditions) <- parseWhere input''
-    return (SelectStatement columns tableName conditions)
+    return (SelectStatement columns tableNames conditions)
 
-parseFromClause :: String -> Either ErrorMessage (String, TableName)
+parseFromClause :: String -> Either ErrorMessage (String, [TableName])
 parseFromClause input = do
     (rest, _) <- runParser (parseKeyword "FROM") input
     (rest',_) <- runParser parseWhitespace rest
-    (rest'', tableName) <- runParser parseName rest'
-    return (rest'', tableName)
+    (rest'', tableNames) <- runParser parseTableNames rest'
+    return (rest'', tableNames)
 
+parseTableNames :: Parser [TableName]
+parseTableNames = do
+  _ <- many parseWhitespace
+  tableName <- parseName
+  otherTableNames <- many $ do
+    _ <- many parseWhitespace
+    _ <- parseChar ','
+    _ <- many parseWhitespace
+    parseName
+  return (tableName : otherTableNames)
 
--- Executes a parsed statement. Produces a DataFrame. Uses
+test :: ParsedStatement
+test = case parseStatement "Select employees3.job, employees2.name from employees2, employees3 where employees2.job = employees3.job" of
+  Right r -> r
+
+ -- Executes a parsed statement. Produces a DataFrame. Uses
 -- InMemoryTables.databases a source of data.
 -- Execute a SELECT statement
 executeStatement :: ParsedStatement -> Either ErrorMessage DataFrame
-executeStatement (SelectStatement columns tableName condition) = do
-    -- Fetch the specified table
-    (tableKey, table) <- fetchTableFromDatabase tableName -- tableKey is tableName in lower case
+executeStatement (SelectStatement columns tableNames maybeCondition) = do
 
-    -- Filter rows based on the condition
-    let filteredRows = filterRows (getColumns table) table condition
+  -- Fetch the specified tables
+  tableDataList <- mapM fetchTableFromDatabase tableNames
 
-    -- Check if aggregation is requested
-    let isAggregationRequested = case columns of
-            Aggregation _ -> True
-            _ -> False
+  -- Check if aggregation is requested
+  let isAggregationRequested = case columns of
+        Aggregation _ -> True
+        _ -> False
 
-    if isAggregationRequested
-        then do
-            let aggregationFunctions = case columns of
-                    Aggregation funcs -> funcs
-                    _ -> []
+  -- Check if joining tables is requested
+  let numberOfTables = length tableNames
+  --if numberOfTables 
+  let isJoinRequested = case maybeCondition of
+        Just condition -> involvesMultipleTables condition
+        _ -> False
 
-            let resultRow = map (\(aggFunc, colName) -> executeAggregationFunction aggFunc (findColumnIndex (getColumns table) colName) filteredRows) aggregationFunctions
+  -- Perform inner join if requested
+  if isJoinRequested then
+     if numberOfTables == 2 then executeJoin tableDataList maybeCondition columns isAggregationRequested else Left "only two tables can be joined"
+  else
+    if numberOfTables /= 1 then Left "only one table should be provided" else executeNoJoin tableDataList maybeCondition columns isAggregationRequested
 
-            return $ DataFrame (createAggregationColumns aggregationFunctions) [resultRow]
-        else do
-
-            let selectedColumnNames = case columns of
-                    All -> map extractColumnName (getColumns table)
-                    SelectedColumns colNames -> colNames
-
-            let selectedColumnIndexes = mapMaybe (\colName -> findColumnIndex (getColumns table) colName) selectedColumnNames
-
-            let selectedColumns = map (\i -> (getColumns table) !! i) selectedColumnIndexes
-
-            let selectedRows = map (\row -> map (\i -> (row !! i)) selectedColumnIndexes) filteredRows
-
-            return $ DataFrame selectedColumns selectedRows
 executeStatement ShowTablesStatement = Right $ DataFrame [Column "TABLE NAME" StringType] (map (\tableName -> [StringValue tableName]) (showTables database))
 executeStatement (ShowTableStatement tableName) =
   case lookup (map toLower tableName) database of
@@ -178,7 +180,7 @@ executeStatement (ShowTableStatement tableName) =
     Nothing -> Left (tableName ++ " not found")
 executeStatement _ = Left "Not implemented: executeStatement"
 
--- Function to execute aggregation functions
+-- -- Function to execute aggregation functions
 executeAggregationFunction :: AggregateFunction -> Maybe Int -> [Row] -> Value
 executeAggregationFunction Min (Just colIndex) rows =
     let values = map (extractValueAtIndex colIndex) rows
@@ -237,11 +239,15 @@ filterRows columns (DataFrame _ rows) condition = case condition of
     Nothing -> rows  -- When condition is Nothing, return all rows
   where
     evaluateWhereStatement :: WhereAtomicStatement -> Row -> Bool
-    evaluateWhereStatement (Where columnName op value) row = case op of
-        Equals -> extractValue columnName row == value
-        NotEquals -> extractValue columnName row /= value
-        LessThanOrEqual -> extractValue columnName row <= value
-        GreaterThanOrEqual -> extractValue columnName row >= value
+    evaluateWhereStatement (Where (tableName, columnName) op valueEither) row = case op of
+        Equals -> case valueEither of
+            Right (StringValue stringValue) -> extractValue columnName row == stringValue
+        NotEquals -> case valueEither of
+            Right (StringValue stringValue) -> extractValue columnName row /= stringValue
+        LessThanOrEqual -> case valueEither of
+            Right (StringValue stringValue) -> extractValue columnName row <= stringValue
+        GreaterThanOrEqual -> case valueEither of
+            Right (StringValue stringValue) -> extractValue columnName row >= stringValue
 
     evaluateWithLogicalOps :: WhereAtomicStatement -> [(LogicalOp, WhereAtomicStatement)] -> Row -> Bool
     evaluateWithLogicalOps whereStatement [] row = evaluateWhereStatement whereStatement row
@@ -260,11 +266,155 @@ dataFrameColumns :: DataFrame -> [Column]
 dataFrameColumns (DataFrame columns _) = columns
 
 -- Select columns
-selectColumns :: [Column] -> Columns -> [Column]
-selectColumns allColumns (SelectedColumns colNames) =
-    filter (\col -> extractColumnName col `elem` colNames) allColumns
+-- selectColumns :: [Column] -> Columns -> [Column]
+-- selectColumns allColumns (SelectedColumns colNames) =
+
+-- Function to check if a condition involves multiple tables (MUST BE FIRST)
+involvesMultipleTables :: Condition -> Bool
+involvesMultipleTables (Comparison whereStatement _) = involvesMultipleTablesInWhere whereStatement -- || any (\(_, cond) -> involvesMultipleTablesInWhere cond) rest --join part must be always the first in where clause
+involvesMultipleTables _ = False
+
+-- Function to check if a WHERE clause involves multiple tables
+involvesMultipleTablesInWhere :: WhereAtomicStatement -> Bool
+involvesMultipleTablesInWhere (Where (tableName1, _) _ (Left (tableName2, _))) = tableName1 /= tableName2
+involvesMultipleTablesInWhere _ = False
+
+-- Function to execute an inner join
+executeJoin :: [(TableName, DataFrame)] -> Maybe Condition -> Columns -> Bool -> Either ErrorMessage DataFrame
+executeJoin tableDataList maybeCondition columns isAggregationRequested = do
+    -- Extract tables and condition
+    let (table1Name, table1) = head tableDataList
+    let (table2Name, table2) = head (tail tableDataList)
+    --let joinCondition = fromMaybe (error "Invalid join condition") maybeCondition -- ???
+
+    -- Ensure join tables have the same column
+    let (joinColumnNameTable1, joinColumnNameTable2) = case maybeCondition of
+            Just (Comparison (Where (tableName1, columnName1) _ (Left (tableName2, columnName2))) _) ->
+                if tableName1 == table1Name
+                    then (columnName1, columnName2)
+                    else (columnName2, columnName1)
+            Just _ -> error "Invalid join condition"
+            Nothing -> error "Invalid join condition"
+
+    -- Fetch the columns to be selected from the join
+    let selectedColumnsTable1 = getColumns table1
+    let selectedColumnsTable2 = getColumns table2
+
+    -- Ensure the join columns exist in their respective tables
+    joinColumnIndexTable1 <- case findColumnIndex selectedColumnsTable1 joinColumnNameTable1 of
+      Just index -> Right index
+      Nothing -> Left "Column not found in table1"
+
+    joinColumnIndexTable2 <- case findColumnIndex selectedColumnsTable2 joinColumnNameTable2 of
+      Just index -> Right index
+      Nothing -> Left "Column not found in table2"
+
+    let resultColumns = case columns of
+          All -> selectedColumnsTable1 ++ selectedColumnsTable2
+          SelectedColumns colNames ->
+            selectedColumnsTable1 ++ filter (\col -> extractColumnName col `elem` map snd colNames) selectedColumnsTable2
+
+    -- Perform the inner join
+    let joinedRows = innerJoin joinColumnIndexTable1 joinColumnIndexTable2 table1 table2 maybeCondition
+
+    -- Create a new DataFrame with selected columns and joined rows
+    let resultDataFrame = DataFrame resultColumns joinedRows
+
+    -- Perform aggregation if requested
+    if isAggregationRequested
+        then executeAggregation resultDataFrame joinedRows columns
+        else executeSelection resultDataFrame joinedRows columns
+
+-- Function to perform inner join
+innerJoin :: Int -> Int -> DataFrame -> DataFrame -> Maybe Condition -> [Row]
+innerJoin joinColumnIndexTable1 joinColumnIndexTable2 table1 table2 maybeCondition =
+  let rowsTable1 = rowsWithIndixes table1
+      rowsTable2 = rowsWithIndixes table2
+      matchingRows = filter (\(index1, row1, index2, row2) -> evaluateJoinCondition (index1, row1) (index2, row2)) (joinedRows rowsTable1 rowsTable2) -- leaves only needed columns in a row
+  in map (\(_, row1, _, row2) -> createJoinedRow joinColumnIndexTable1 joinColumnIndexTable2 row1 row2) matchingRows
+  where
+    rowsWithIndixes :: DataFrame -> [(Int, Row)]
+    rowsWithIndixes (DataFrame _ rows) = zip [0..] rows
+
+    joinedRows :: [(Int, Row)] -> [(Int, Row)] -> [(Int, Row, Int, Row)]
+    joinedRows list1 list2 = [(index1, row1, index2, row2) | (index1, row1) <- list1, (index2, row2) <- list2]
+
+    evaluateJoinCondition :: (Int, Row) -> (Int, Row) -> Bool
+    evaluateJoinCondition (index1, row1) (index2, row2) =
+      case maybeCondition of
+        Just (Comparison whereStatement rest) ->
+          let result = evaluateWhereStatement whereStatement (row1 ++ row2)
+          in result--trace ("Join condition result: " ++ show result ++ ", row1: " ++ show row1 ++ ", row2: " ++ show row2) result
+        Nothing -> trace ("Join condition result (no condition): " ++ show (index1 == index2)) (index1 == index2)
+
+    evaluateWhereStatement :: WhereAtomicStatement -> Row -> Bool
+    evaluateWhereStatement (Where (tableName, columnName) op valueEither) row =
+      let
+        extractValue' colIndex =
+          if colIndex < length row
+            then row !! colIndex
+            else NullValue
+        value1 = extractValue' joinColumnIndexTable1
+        value2 = extractValue' (length (getColumns table1) + joinColumnIndexTable2) -- extracting value from the second table (num.of col. of 1st table + index in 2nd table)
+        
+      in --trace ("Value1: " ++ show value1 ++ ", Value2: " ++ show value2) $
+      case op of
+        Equals ->
+            case valueEither of
+              Left (tableName2, columnName2) -> value1 == value2
+        _ -> error "Unsupported operator for join condition"
+    
+      where
+        findColumnIndex :: [Column] -> ColumnName -> Int
+        findColumnIndex columns colName =
+          case elemIndex colName (map extractColumnName columns) of
+            Just index -> index
+            Nothing -> error $ "Column not found: " ++ colName
+
+    createJoinedRow :: Int -> Int -> Row -> Row -> Row
+    createJoinedRow joinColumnIndexTable1' joinColumnIndexTable2' row1 row2 =
+      let prefix1 = take joinColumnIndexTable1' row1
+          suffix1 = drop joinColumnIndexTable1' row1
+          prefix2 = take joinColumnIndexTable2' row2
+          suffix2 = drop joinColumnIndexTable2' row2
+      in prefix1 ++ suffix1 ++ prefix2 ++ suffix2
+
+-- Function to execute selection without join
+executeNoJoin :: [(TableName, DataFrame)] -> Maybe Condition -> Columns -> Bool -> Either ErrorMessage DataFrame
+executeNoJoin tableDataList maybeCondition columns isAggregationRequested = do
+  -- Fetch the specified table
+  let (tableName, table) = head tableDataList
+
+  -- Filter rows based on the condition
+  let filteredRows = filterRows (getColumns table) table maybeCondition
+
+  -- Perform aggregation if requested
+  if isAggregationRequested
+      then executeAggregation table filteredRows columns
+      else executeSelection table filteredRows columns
 
 
+executeAggregation :: DataFrame -> [Row] -> Columns -> Either ErrorMessage DataFrame
+executeAggregation table filteredRows columns = do
+  let aggregationFunctions = case columns of
+          Aggregation funcs -> funcs
+          _ -> []
+
+  let resultRow = map (\(aggFunc, colName) -> executeAggregationFunction aggFunc (findColumnIndex (getColumns table) colName) filteredRows) aggregationFunctions
+  return $ DataFrame (createAggregationColumns aggregationFunctions) [resultRow]
+
+executeSelection :: DataFrame -> [Row] -> Columns -> Either ErrorMessage DataFrame
+executeSelection table filteredRows columns = do
+    let selectedColumnNames = case columns of
+            All -> map extractColumnName (getColumns table)
+            SelectedColumns colNames -> map snd colNames
+    let selectedColumnIndexes = mapMaybe (\colName -> findColumnIndex (getColumns table) colName) selectedColumnNames
+
+    let selectedColumns = map (\i -> (getColumns table) !! i) selectedColumnIndexes
+
+    let selectedRows = map (\row -> map (\i -> (row !! i)) selectedColumnIndexes) filteredRows
+
+    return $ DataFrame selectedColumns selectedRows
 ------------------------------PARSERS (BEFORE WHERE CLAUSE)----------------------------
 parseName :: Parser String
 parseName = Parser $ \inp ->
@@ -285,33 +435,36 @@ parseColumns = parseAll <|> parseAggregationStatement <|> parseColumnList
 parseAll :: Parser Columns
 parseAll = fmap (\_ -> All) $ parseChar '*'
 
+-- parseColumnList :: Parser Columns
+-- parseColumnList = do
+--     name <- parseName
+--     other <- many parseCSName
+--     return $ SelectedColumns $ name : other
+
 parseColumnList :: Parser Columns
 parseColumnList = do
-    name <- parseName
+    (tableName, columnName) <- parseTableAndColumnName
     other <- many parseCSName
-    return $ SelectedColumns $ name : other
+    return $ SelectedColumns $ (tableName, columnName) : other
 
-parseCSName :: Parser String
+parseTableAndColumnName :: Parser (TableName, ColumnName)
+parseTableAndColumnName = do
+    tableName <- parseName
+    _ <- parseChar '.'
+    columnName <- parseName
+    return (tableName, columnName)
+
+parseCSName :: Parser (String, String)
 parseCSName = do
     _ <- many $ parseChar ' ' --many means that can be zero or more ' ' chars
     _ <- parseChar ','
     _ <- many $ parseChar ' '
-    name <- parseName
-    return name
+    parseTableAndColumnName
 
 parseColumnListQuery :: String -> Either ErrorMessage (String, Columns)
 parseColumnListQuery inp = runParser parseColumns inp
 
--- parseKeyword :: String -> Parser String -- OLD VERSION
--- parseKeyword keyword = Parser $ \inp ->
---   if map toLower (take l inp) == map toLower keyword then
---     Right (drop l inp, keyword)
---   else
---     Left $ keyword ++ " expected"
---   where
---     l = length keyword
-
-parseKeyword :: String -> Parser String -- NEW VERSION
+parseKeyword :: String -> Parser String
 parseKeyword keyword = Parser $ \inp ->
   let
     l = length keyword
@@ -327,18 +480,18 @@ parseLogicalOp = parseKeyword "OR" >> pure Or
 
 parseOperator :: Parser Operator
 parseOperator = parseEquals <|> parseNotEquals <|> parseGreaterThanOrEqual <|> parseLessThanOrEqual
-  where
-    parseEquals :: Parser Operator
-    parseEquals = parseKeyword "=" >> pure Equals
 
-    parseNotEquals :: Parser Operator
-    parseNotEquals = parseKeyword "<>" >> pure NotEquals
+parseEquals :: Parser Operator
+parseEquals = parseKeyword "=" >> pure Equals
 
-    parseGreaterThanOrEqual :: Parser Operator
-    parseGreaterThanOrEqual = parseKeyword ">=" >> pure GreaterThanOrEqual
+parseNotEquals :: Parser Operator
+parseNotEquals = parseKeyword "<>" >> pure NotEquals
 
-    parseLessThanOrEqual :: Parser Operator
-    parseLessThanOrEqual = parseKeyword "<=" >> pure LessThanOrEqual
+parseGreaterThanOrEqual :: Parser Operator
+parseGreaterThanOrEqual = parseKeyword ">=" >> pure GreaterThanOrEqual
+
+parseLessThanOrEqual :: Parser Operator
+parseLessThanOrEqual = parseKeyword "<=" >> pure LessThanOrEqual
 
 parseWhitespace :: Parser String
 parseWhitespace = do
@@ -354,31 +507,52 @@ parseWhereStatement :: Parser (Maybe Condition)
 parseWhereStatement = parseWithWhere <|> parseWithoutWhere
   where
     parseWithWhere = do
-       _ <- many parseWhitespace
-       _ <- parseKeyword "WHERE"
-       _ <- parseWhitespace
-       columnName <- parseName
-       _ <- many parseWhitespace
-       condition <- parseOperator
-       _ <- many parseWhitespace
-       _ <- parseQuotationMarks
-       conditionString <- parseName
-       _ <- parseQuotationMarks
-       otherConditions <- many $ do
-         _ <- parseWhitespace
-         logicalOp <- parseLogicalOp
-         _ <- many parseWhitespace
-         columnName' <- parseName
-         _ <- many parseWhitespace
-         condition' <- parseOperator
-         _ <- many parseWhitespace
-         _ <- parseQuotationMarks
-         conditionString' <- parseName
-         _ <- parseQuotationMarks
-         return (logicalOp, Where columnName' condition' conditionString')
-       return $ Just $ Comparison (Where columnName condition conditionString) otherConditions
+      _ <- many parseWhitespace
+      _ <- parseKeyword "WHERE"
+      _ <- parseWhitespace
+      condition <- parseCondition
+      otherConditions <- many $ do
+        _ <- parseWhitespace
+        logicalOp <- parseLogicalOp
+        _ <- parseWhitespace
+        condition' <- parseCondition
+        return (logicalOp, condition')
+      return $ Just $ Comparison condition otherConditions
 
     parseWithoutWhere = pure Nothing
+
+-- Parser for atomic conditions
+parseCondition :: Parser WhereAtomicStatement
+parseCondition = parseComparisonWithStringValue <|> parseComparisonWithColumnReference
+  where
+    parseComparisonWithStringValue :: Parser WhereAtomicStatement
+    parseComparisonWithStringValue = do
+      _ <- many parseWhitespace
+      (tableName, columnName) <- parseTableAndColumnName
+      _ <- many parseWhitespace
+      op <- parseOperator
+      _ <- many parseWhitespace
+      _ <- parseQuotationMarks
+      conditionString <- parseName
+      _ <- parseQuotationMarks
+      return $ Where (tableName, columnName) op (Right (StringValue conditionString))
+
+    parseComparisonWithColumnReference :: Parser WhereAtomicStatement
+    parseComparisonWithColumnReference = do
+      _ <- many parseWhitespace
+      (tableName1, columnName1) <- parseTableAndColumnName
+      _ <- many parseWhitespace
+      op <- parseEquals
+      _ <- many parseWhitespace
+      (tableName2, columnName2) <- parseTableAndColumnName
+      return $ Where (tableName1, columnName1) op (Left (tableName2, columnName2))
+
+    parseTableAndColumnName :: Parser (TableName, ColumnName)
+    parseTableAndColumnName = do
+      tableName <- parseName
+      _ <- parseChar '.'
+      columnName <- parseName
+      return (tableName, columnName)
 
 
 parseWhere :: String -> Either ErrorMessage (String, Maybe Condition)
@@ -416,11 +590,9 @@ parseAggregateFunction' = parseMin <|> parseSum
     parseMin = parseKeyword "MIN" >> pure Min
     parseSum = parseKeyword "SUM" >> pure Sum
 
-
-
 --used in ShowTables execution
 showTables :: Database -> [TableName]
-showTables db = map fst db
+showTables = map fst
 
 extractColumnName :: Column -> String
 extractColumnName (Column name _) = name
@@ -570,7 +742,3 @@ parseDelete input =
   case runParser parseDeleteStatement input of
     Right (_, parsedStatement) -> Right parsedStatement
     Left errMsg -> Left errMsg
-
-
-
-
