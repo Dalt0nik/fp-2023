@@ -89,7 +89,7 @@ runExecuteIO (Free step) = do
           return $ next parsedStatement
 
         runStep (Lib3.ExecuteStatement statement next) = do
-          let executionResult = Lib2.executeStatement statement
+          let executionResult = Lib3.executeStatement statement
           return $ next executionResult
 
 

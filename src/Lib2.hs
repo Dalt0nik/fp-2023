@@ -15,6 +15,7 @@ import Data.Maybe
 import Debug.Trace
 import Text.Read (Lexeme(String))
 
+
 type ErrorMessage = String
 type Database = [(TableName, DataFrame)]
 
@@ -553,6 +554,22 @@ parseCondition = parseComparisonWithStringValue <|> parseComparisonWithColumnRef
       _ <- parseChar '.'
       columnName <- parseName
       return (tableName, columnName)
+
+    -- Updated parseTableAndColumnName
+    -- parseTableAndColumnName :: Parser (Maybe TableName, ColumnName)
+    -- parseTableAndColumnName = parseWithTableName <|> parseWithoutTableName
+    --   where
+    --     parseWithTableName = do
+    --       tableName <- parseName
+    --       _ <- parseChar '.'
+    --       columnName <- parseName
+    --       return (Just tableName, columnName)
+
+    --     parseWithoutTableName = do
+    --       columnName <- parseName
+    --       return (Just "", columnName)
+
+
 
 
 parseWhere :: String -> Either ErrorMessage (String, Maybe Condition)
