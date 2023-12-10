@@ -6,7 +6,9 @@ import Lib1
 import qualified Lib2
 import qualified Lib3 
 import Test.Hspec
-
+import Control.Monad.Trans.Except (runExceptT)
+import DataFrame (DataFrame (..), Row, Column (..), ColumnType (..), Value (..))
+import Main (runStep)
 
 -- mockDatabaseJSON :: String
 -- mockDatabaseJSON = "[[ ["id", "IntegerType"], ["name", "StringType"], ["surname", "StringType"] ], [ [{"contents":200,"tag":"IntegerValue"}, {"contents":"ooo","tag":"StringValue"}, {"contents":"tom","tag":"StringValue"}], [{"contents":200,"tag":"IntegerValue"}, {"contents":"ooo","tag":"StringValue"}, {"contents":"hellno","tag":"StringValue"}], [{"contents":100,"tag":"IntegerValue"}, {"contents":"ooo","tag":"StringValue"}, {"contents":"hell","tag":"StringValue"}], [{"contents":69,"tag":"IntegerValue"}, {"contents":"don","tag":"StringValue"}, {"contents":"don","tag":"StringValue"}] ]]"
@@ -179,6 +181,64 @@ main = hspec $ do
             else expectationFailure $ "Expected 'Not implemented: parseStatement', but got: " ++ err
         Right _ -> expectationFailure "Expected parsing failure, but returned a valid statement"
 
+runExecuteIO :: Lib3.Execution r -> IO r
+runExecuteIO (Pure r) = return r
+runExecuteIO (Free step) = do
+    next <- runStep step
+    runExecuteIO next
+    where
+        -- !!!we need to change this
+        runStep :: Lib3.ExecutionAlgebra a -> IO a
+        runStep (Lib3.GetCurrentTime next) = getCurrentTime >>= return . next
+        runStep (Lib3.ShowTable tableName f) = do
+          tableResult <- runExecuteIO $ Lib3.showTable tableName
+          return $ f tableResult
+
+        runStep (Lib3.ExecuteInsert statement f) = do --i think this is redundant
+          insertResult <- runExecuteIO $ Lib3.executeInsert statement
+          case insertResult of
+            Right df -> return $ f (Right df)
+            Left errMsg -> return $ f (Left errMsg)
+
+        runStep (Lib3.ParseStatement input next) = do
+          let parsedStatement = case Lib2.parseStatement input of
+                Right stmt -> stmt
+                Left err -> error ("Parsing error: " ++ err)  -- Errors don't work
+          return $ next parsedStatement
+
+
+        runStep (Lib3.ExecuteStatement statement f) = do
+          executionResult <- runExecuteIO $ Lib3.executeStatement statement
+          case executionResult of
+            Right df -> return $ f (Right df)
+            Left errMsg -> return $ f (Left errMsg)
+
+        runStep (Lib3.LoadFile tableName next) = case tableName of
+          "employees" -> do
+            let jsonContent1 =
+              "[[ [\"id\", \"IntegerType\"], [\"name\", \"StringType\"], [\"surname\", \"StringType\"] ], \
+              \[ [{\"contents\":1,\"tag\":\"IntegerValue\"}, {\"contents\":\"Vi\",\"tag\":\"StringValue\"}, {\"contents\":\"Po\",\"tag\":\"StringValue\"}], \
+              \[{\"contents\":2,\"tag\":\"IntegerValue\"}, {\"contents\":\"Ed\",\"tag\":\"StringValue\"}, {\"contents\":\"Dl\",\"tag\":\"StringValue\"}], \
+              \[{\"contents\":3,\"tag\":\"IntegerValue\"}, {\"contents\":\"KN\",\"tag\":\"StringValue\"}, {\"contents\":\"KS\",\"tag\":\"StringValue\"}], \
+              \[{\"contents\":4,\"tag\":\"IntegerValue\"}, {\"contents\":\"DN\",\"tag\":\"StringValue\"}, {\"contents\":\"DS\",\"tag\":\"StringValue\"}], \
+              \[{\"contents\":5,\"tag\":\"IntegerValue\"}, {\"contents\":\"AN\",\"tag\":\"StringValue\"}, {\"contents\":\"AS\",\"tag\":\"StringValue\"}] ]]"
+            return (table, next $ Lib3.deserializeDataFrame jsonContent1)
+          "myDataFrame2" -> do
+            -- Handle the myDataFrame2 case
+            let jsonContent2 =
+              "[[ [\"Name\", \"StringType\"], [\"Age\", \"IntegerType\"], [\"IsStudent\", \"BoolType\"] ], \
+              \[ [{\"contents\":\"Alice\",\"tag\":\"StringValue\"}, {\"contents\":25,\"tag\":\"IntegerValue\"}, {\"contents\":false,\"tag\":\"BoolValue\"}], \
+              \[{\"contents\":\"Bob\",\"tag\":\"StringValue\"}, {\"contents\":30,\"tag\":\"IntegerValue\"}, {\"contents\":true,\"tag\":\"BoolValue\"}], \
+              \[{\"contents\":\"Charlie\",\"tag\":\"StringValue\"}, {\"contents\":22,\"tag\":\"IntegerValue\"}, {\"contents\":true,\"tag\":\"BoolValue\"}], \
+              \[{\"contents\":\"artiom\",\"tag\":\"StringValue\"}, {\"contents\":20,\"tag\":\"IntegerValue\"}, {\"contents\":true,\"tag\":\"BoolValue\"}] ]]"
+            return (table, next $ Lib3.deserializeDataFrame jsonContent2)
+        
+        -- !!!we need to change this
+        runStep (Lib3.SaveTable (tableName, dataFrame) next) = do
+          --let filePath = "db/" ++ tableName ++ ".json"
+          let jsonStr = Lib3.serializeDataFrame dataFrame
+          -- Prelude.writeFile filePath jsonStr --wtf we do with this?
+          return (next ())
 
 -- this bit below needs fixing
 
