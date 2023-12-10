@@ -8,7 +8,8 @@ import qualified Lib3
 import Test.Hspec
 import Control.Monad.Trans.Except (runExceptT)
 import DataFrame (DataFrame (..), Row, Column (..), ColumnType (..), Value (..))
-import Main (runStep)
+import Control.Monad.Free (Free (..))
+
 
 -- mockDatabaseJSON :: String
 -- mockDatabaseJSON = "[[ ["id", "IntegerType"], ["name", "StringType"], ["surname", "StringType"] ], [ [{"contents":200,"tag":"IntegerValue"}, {"contents":"ooo","tag":"StringValue"}, {"contents":"tom","tag":"StringValue"}], [{"contents":200,"tag":"IntegerValue"}, {"contents":"ooo","tag":"StringValue"}, {"contents":"hellno","tag":"StringValue"}], [{"contents":100,"tag":"IntegerValue"}, {"contents":"ooo","tag":"StringValue"}, {"contents":"hell","tag":"StringValue"}], [{"contents":69,"tag":"IntegerValue"}, {"contents":"don","tag":"StringValue"}, {"contents":"don","tag":"StringValue"}] ]]"
@@ -215,8 +216,7 @@ runExecuteIO (Free step) = do
 
         runStep (Lib3.LoadFile tableName next) = case tableName of
           "employees" -> do
-            let jsonContent1 =
-              "[[ [\"id\", \"IntegerType\"], [\"name\", \"StringType\"], [\"surname\", \"StringType\"] ], \
+            let jsonContent1 =  "[[ [\"id\", \"IntegerType\"], [\"name\", \"StringType\"], [\"surname\", \"StringType\"] ], \
               \[ [{\"contents\":1,\"tag\":\"IntegerValue\"}, {\"contents\":\"Vi\",\"tag\":\"StringValue\"}, {\"contents\":\"Po\",\"tag\":\"StringValue\"}], \
               \[{\"contents\":2,\"tag\":\"IntegerValue\"}, {\"contents\":\"Ed\",\"tag\":\"StringValue\"}, {\"contents\":\"Dl\",\"tag\":\"StringValue\"}], \
               \[{\"contents\":3,\"tag\":\"IntegerValue\"}, {\"contents\":\"KN\",\"tag\":\"StringValue\"}, {\"contents\":\"KS\",\"tag\":\"StringValue\"}], \
@@ -225,8 +225,7 @@ runExecuteIO (Free step) = do
             return (table, next $ Lib3.deserializeDataFrame jsonContent1)
           "myDataFrame2" -> do
             -- Handle the myDataFrame2 case
-            let jsonContent2 =
-              "[[ [\"Name\", \"StringType\"], [\"Age\", \"IntegerType\"], [\"IsStudent\", \"BoolType\"] ], \
+            let jsonContent2 = "[[ [\"Name\", \"StringType\"], [\"Age\", \"IntegerType\"], [\"IsStudent\", \"BoolType\"] ], \
               \[ [{\"contents\":\"Alice\",\"tag\":\"StringValue\"}, {\"contents\":25,\"tag\":\"IntegerValue\"}, {\"contents\":false,\"tag\":\"BoolValue\"}], \
               \[{\"contents\":\"Bob\",\"tag\":\"StringValue\"}, {\"contents\":30,\"tag\":\"IntegerValue\"}, {\"contents\":true,\"tag\":\"BoolValue\"}], \
               \[{\"contents\":\"Charlie\",\"tag\":\"StringValue\"}, {\"contents\":22,\"tag\":\"IntegerValue\"}, {\"contents\":true,\"tag\":\"BoolValue\"}], \
