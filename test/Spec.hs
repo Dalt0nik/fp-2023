@@ -200,6 +200,75 @@ main = hspec $ do
             )
       result <- rez
       result `shouldBe` Right expected
+    it "Executes simple querries with WHERE statements" $ do
+      let (parsed, rez, expected) =
+            ( "select * from employees where employees.name <> 'Vi';",
+              runExecuteIO (Lib3.executeSql parsed),
+              DataFrame
+                [ Column "id" IntegerType,
+                  Column "name" StringType,
+                  Column "surname" StringType
+                ]
+                [ [IntegerValue 2, StringValue "Ed", StringValue "Dl"],
+                  [IntegerValue 3, StringValue "KN", StringValue "KS"],
+                  [IntegerValue 4, StringValue "DN", StringValue "DS"],
+                  [IntegerValue 5, StringValue "AN", StringValue "AS"]
+                ]
+            )
+      result <- rez
+      result `shouldBe` Right expected
+    it "Executes inserts" $ do
+      let (parsed, rez, expected) =
+            ( "insert into employees (id, name, surname) values (69, 'a','b');",
+              runExecuteIO (Lib3.executeSql parsed),
+              DataFrame
+                [ Column "id" IntegerType,
+                  Column "name" StringType,
+                  Column "surname" StringType
+                ]
+                [ [IntegerValue 1, StringValue "Vi", StringValue "Po"],
+                  [IntegerValue 2, StringValue "Ed", StringValue "Dl"],
+                  [IntegerValue 3, StringValue "KN", StringValue "KS"],
+                  [IntegerValue 4, StringValue "DN", StringValue "DS"],
+                  [IntegerValue 5, StringValue "AN", StringValue "AS"],
+                  [IntegerValue 69, StringValue "a", StringValue "b"]
+                ]
+            )
+      result <- rez
+      result `shouldBe` Right expected
+    it "Executes updates" $ do
+      let (parsed, rez, expected) =
+            ( "update employees set name = 'ar' , id = 100 where employees.surname <> 'Dl' ;",
+              runExecuteIO (Lib3.executeSql parsed),
+              DataFrame
+                [ Column "id" IntegerType,
+                  Column "name" StringType,
+                  Column "surname" StringType
+                ]
+                [ [IntegerValue 100, StringValue "ar", StringValue "Po"],
+                  [IntegerValue 2, StringValue "Ed", StringValue "Dl"],
+                  [IntegerValue 100, StringValue "ar", StringValue "KS"],
+                  [IntegerValue 100, StringValue "ar", StringValue "DS"],
+                  [IntegerValue 100, StringValue "ar", StringValue "AS"]
+                ]
+            )
+      result <- rez
+      result `shouldBe` Right expected
+    it "Executes deletes" $ do
+      let (parsed, rez, expected) =
+            ( "delete from employees where employees.surname <> 'Dl';;",
+              runExecuteIO (Lib3.executeSql parsed),
+              DataFrame
+                [ Column "id" IntegerType,
+                  Column "name" StringType,
+                  Column "surname" StringType
+                ]
+                [ 
+                  [IntegerValue 2, StringValue "Ed", StringValue "Dl"]
+                ]
+            )
+      result <- rez
+      result `shouldBe` Right expected    
 
 
 runExecuteIO :: Lib3.Execution r -> IO r
