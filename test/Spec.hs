@@ -181,6 +181,26 @@ main = hspec $ do
             then return ()
             else expectationFailure $ "Expected 'Not implemented: parseStatement', but got: " ++ err
         Right _ -> expectationFailure "Expected parsing failure, but returned a valid statement"
+  describe "Executes:" $ do
+    it "Executes simple querries" $ do
+      let (parsed, rez, expected) =
+            ( "select * from employees;",
+              runExecuteIO (Lib3.executeSql parsed),
+              DataFrame
+                [ Column "id" IntegerType,
+                  Column "name" StringType,
+                  Column "surname" StringType
+                ]
+                [ [IntegerValue 1, StringValue "Vi", StringValue "Po"],
+                  [IntegerValue 2, StringValue "Ed", StringValue "Dl"],
+                  [IntegerValue 3, StringValue "KN", StringValue "KS"],
+                  [IntegerValue 4, StringValue "DN", StringValue "DS"],
+                  [IntegerValue 5, StringValue "AN", StringValue "AS"]
+                ]
+            )
+      result <- rez
+      result `shouldBe` Right expected
+
 
 runExecuteIO :: Lib3.Execution r -> IO r
 runExecuteIO (Pure r) = return r
@@ -190,16 +210,10 @@ runExecuteIO (Free step) = do
     where
         -- !!!we need to change this
         runStep :: Lib3.ExecutionAlgebra a -> IO a
-        runStep (Lib3.GetCurrentTime next) = getCurrentTime >>= return . next
+        -- runStep (Lib3.GetCurrentTime next) = getCurrentTime >>= return . next
         runStep (Lib3.ShowTable tableName f) = do
           tableResult <- runExecuteIO $ Lib3.showTable tableName
           return $ f tableResult
-
-        runStep (Lib3.ExecuteInsert statement f) = do --i think this is redundant
-          insertResult <- runExecuteIO $ Lib3.executeInsert statement
-          case insertResult of
-            Right df -> return $ f (Right df)
-            Left errMsg -> return $ f (Left errMsg)
 
         runStep (Lib3.ParseStatement input next) = do
           let parsedStatement = case Lib2.parseStatement input of
@@ -222,7 +236,7 @@ runExecuteIO (Free step) = do
               \[{\"contents\":3,\"tag\":\"IntegerValue\"}, {\"contents\":\"KN\",\"tag\":\"StringValue\"}, {\"contents\":\"KS\",\"tag\":\"StringValue\"}], \
               \[{\"contents\":4,\"tag\":\"IntegerValue\"}, {\"contents\":\"DN\",\"tag\":\"StringValue\"}, {\"contents\":\"DS\",\"tag\":\"StringValue\"}], \
               \[{\"contents\":5,\"tag\":\"IntegerValue\"}, {\"contents\":\"AN\",\"tag\":\"StringValue\"}, {\"contents\":\"AS\",\"tag\":\"StringValue\"}] ]]"
-            return (table, next $ Lib3.deserializeDataFrame jsonContent1)
+            return (next $ Lib3.deserializeDataFrame jsonContent1)
           "myDataFrame2" -> do
             -- Handle the myDataFrame2 case
             let jsonContent2 = "[[ [\"Name\", \"StringType\"], [\"Age\", \"IntegerType\"], [\"IsStudent\", \"BoolType\"] ], \
@@ -230,7 +244,7 @@ runExecuteIO (Free step) = do
               \[{\"contents\":\"Bob\",\"tag\":\"StringValue\"}, {\"contents\":30,\"tag\":\"IntegerValue\"}, {\"contents\":true,\"tag\":\"BoolValue\"}], \
               \[{\"contents\":\"Charlie\",\"tag\":\"StringValue\"}, {\"contents\":22,\"tag\":\"IntegerValue\"}, {\"contents\":true,\"tag\":\"BoolValue\"}], \
               \[{\"contents\":\"artiom\",\"tag\":\"StringValue\"}, {\"contents\":20,\"tag\":\"IntegerValue\"}, {\"contents\":true,\"tag\":\"BoolValue\"}] ]]"
-            return (table, next $ Lib3.deserializeDataFrame jsonContent2)
+            return (next $ Lib3.deserializeDataFrame jsonContent2)
         
         -- !!!we need to change this
         runStep (Lib3.SaveTable (tableName, dataFrame) next) = do
