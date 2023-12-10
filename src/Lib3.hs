@@ -266,7 +266,8 @@ executeSql sql = do
         return $ Right $ DataFrame [column] [[value]]
     _ | "select" `isPrefixOf` sql' -> do
         parsedStatement <- parseStatement sql
-        executeStatementFree parsedStatement
+        executeStatement parsedStatement
+        --executeStatementFree parsedStatement
     _ | "insert" `isPrefixOf` sql' -> do
         parsedStatement <- parseStatement sql
         executeInsert parsedStatement
@@ -612,5 +613,3 @@ executeSelection table filteredRows columns = do
     return $ Right $ DataFrame selectedColumns selectedRows
 
 
-    -- load file return value downgrade to dataframe
-    -- zamenit fetchtable na loadFile (pomeniat fetchTable ta free monad)
