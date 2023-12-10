@@ -38,7 +38,6 @@ main = hspec $ do
   describe "Lib1.renderDataFrameAsTable" $ do
     it "renders a table" $ do
       Lib1.renderDataFrameAsTable 100 (snd D.tableEmployees) `shouldSatisfy` not . null
-  
   describe "Lib2.parseStatement:" $ do
     describe "ShowTables" $ do
       it "Parses \"Show Tables\" with mixed-case and multiple spaces" $ do
@@ -50,32 +49,42 @@ main = hspec $ do
           let input = Lib2.parseStatement "  show taBLe     employees"
           let expectedOutput = Right (Lib2.ShowTableStatement "employees")
           input `shouldBe` expectedOutput
-    
   describe "SelectStatement" $ do
-    it "Parses \"SELECT employees.name FROM employees\" " $ do
+    it "Parses SELECT statement with single column (case insensitive and extra spaces)" $ do
       let input = "SELECT employees.name FROM employees"
       let expectedOutput = Right (Lib2.SelectStatement (Lib2.SelectedColumns [("employees","name")]) ["employees"] Nothing)
       Lib2.parseStatement input `shouldBe` expectedOutput
-    it "Parses \"SELECT SUM(id) FROM employees\"" $ do
-      let input = "SELECT SUM(id) FROM employees"
-      let expectedOutput = Right (Lib2.SelectStatement (Lib2.Aggregation [(Lib2.Sum,"id")]) ["employees"] Nothing)
-      Lib2.parseStatement input `shouldBe` expectedOutput
-    it "Parses \"SELECT sum(id), min(id) FROM employees\"" $ do
-      let input = "SELECT sum(id), min(id) FROM employees"
-      let expectedOutput = Right (Lib2.SelectStatement (Lib2.Aggregation [(Lib2.Sum,"id"),(Lib2.Min,"id")]) ["employees"] Nothing)
-      Lib2.parseStatement input `shouldBe` expectedOutput
-    it "Parses \"SELECT sum(id) FROM employees WHERE name <> 'a'\"" $ do
-      let input = "SELECT sum(id) FROM employees WHERE name <> 'a'"
-      let expectedOutput = Right (Lib2.SelectStatement (Lib2.Aggregation [(Lib2.Sum,"id")]) ["employees"] Nothing)
-      Lib2.parseStatement input `shouldBe` expectedOutput
-    it "Parses \"SELECT employees.name FROM employees where name = 'Vi'\"" $ do
+    it "Parses SELECT statement with single condition" $ do
       let input = "SELECT employees.name FROM employees where name = 'Vi'"
       let expectedOutput = Right (Lib2.SelectStatement (Lib2.SelectedColumns [("employees", "name")]) ["employees"] Nothing)
       Lib2.parseStatement input `shouldBe` expectedOutput
-    it "Parses \"SELECT employees.name FROM employees where name = 'Vi' OR surname = 'AS'\"" $ do
+    it "Parses SELECT statement with multiple conditions" $ do
       let input = "SELECT employees.name FROM employees where name = 'Vi' OR surname = 'AS'"
       let expectedOutput = Right (Lib2.SelectStatement (Lib2.SelectedColumns [("employees", "name")]) ["employees"] Nothing)
+      Lib2.parseStatement input `shouldBe` expectedOutput    
+    it "Parses SELECT statement with aggregation function" $ do
+      let input = "SELECT SUM(id) FROM employees"
+      let expectedOutput = Right (Lib2.SelectStatement (Lib2.Aggregation [(Lib2.Sum,"id")]) ["employees"] Nothing)
       Lib2.parseStatement input `shouldBe` expectedOutput
+    it "Parses SELECT statement with multiple aggregation functions" $ do
+      let input = "SELECT sum(id), min(id) FROM employees"
+      let expectedOutput = Right (Lib2.SelectStatement (Lib2.Aggregation [(Lib2.Sum,"id"),(Lib2.Min,"id")]) ["employees"] Nothing)
+      Lib2.parseStatement input `shouldBe` expectedOutput
+    it "Parses SELECT statement with aggregation function and a condition" $ do
+      let input = "SELECT sum(id) FROM employees WHERE name <> 'a'"
+      let expectedOutput = Right (Lib2.SelectStatement (Lib2.Aggregation [(Lib2.Sum,"id")]) ["employees"] Nothing)
+      Lib2.parseStatement input `shouldBe` expectedOutput
+    it "Parses SELECT statement with aggregation function and multiple conditions" $ do
+      let input = "SELECT sum(id) FROM employees WHERE name = 'Vi' OR surname = 'AS'"
+      let expectedOutput = Right (Lib2.SelectStatement (Lib2.Aggregation [(Lib2.Sum, "id")]) ["employees"] Nothing)
+      Lib2.parseStatement input `shouldBe` expectedOutput
+    it "Parses SELECT statement with joinded tables" $ do
+      let input = "SELECT employees.id, employees3.job FROM employees, employees3 WHERE employees.id = employees3.id"
+      let expectedOutput = Right (Lib2.SelectStatement (Lib2.SelectedColumns [("employees", "id"), ("employees3", "job")]) ["employees", "employees3"] (Just (Lib2.Comparison (Lib2.Where ("employees", "id") Lib2.Equals (Left ("employees3", "id"))) [])))
+      Lib2.parseStatement input `shouldBe` expectedOutput
+
+
+
 
   describe "ExecuteStatement" $ do
     it "Handles SelectStatement with single column without Condition" $ do
@@ -88,7 +97,7 @@ main = hspec $ do
                           , [DataFrame.StringValue "AN"]
                           ]
       result `shouldBe` Right (DataFrame.DataFrame expectedColumns expectedRows)
-    it "Executes \"SELECT flags.flag FROM flags\" " $ do
+    it "Handles SELECT query with one column requested from the table" $ do
       let result = Lib2.executeStatement (Lib2.SelectStatement (Lib2.SelectedColumns [("flags","flag")]) ["flags"] Nothing)
       let expectedColumns = [DataFrame.Column "flag" DataFrame.StringType]
       let expectedRows = [ [DataFrame.StringValue "a"]
@@ -97,14 +106,84 @@ main = hspec $ do
                           , [DataFrame.StringValue "b"]
                           ]
       result `shouldBe` Right (DataFrame.DataFrame expectedColumns expectedRows)
+    -- it "Handles SELECT statement with joinded tables" $ do
+    --   let result Lib2.executeStatement ( Lib2.SelectStatement (Lib2.SelectedColumns [("employees", "id"), ("employees3", "job")]) ["employees", "employees3"] (Just (Lib2.Comparison (Lib2.Where ("employees", "id") Lib2.Equals (Left ("employees3", "id"))) [])))
+    --   let expectedColumns = [DataFrame.Column "id" DataFrame.StringType, DataFrame.Column "job" DataFrame.StringType]
+    --   let expectedRows = [ [DataFrame.StringValue "1", DataFrame.StringValue "job1"]
+    --                       , [DataFrame.StringValue "2", DataFrame.StringValue "job2"]
+    --                       , [DataFrame.StringValue "3", DataFrame.StringValue "job3"]
+    --                       , [DataFrame.StringValue "4", DataFrame.StringValue "job4"]
+    --                       , [DataFrame.StringValue "5", DataFrame.StringValue "job5"]
+    --                       ]
+    --   result `shouldBe` Right (DataFrame.DataFrame expectedColumns expectedRows)
+
+
+
+    it "Handles SELECT statement with joined tables" $ do
+      let result = Lib2.executeStatement $ Lib2.SelectStatement
+            (Lib2.SelectedColumns [("employees", "id"), ("employees3", "job")])
+            ["employees", "employees3"]
+            (Just (Lib2.Comparison (Lib2.Where ("employees", "id") Lib2.Equals (Left ("employees3", "id"))) []))
+
+      let expectedColumns = [DataFrame.Column "id" DataFrame.IntegerType, DataFrame.Column "job" DataFrame.StringType]
+      let expectedRows = [ [DataFrame.IntegerValue 1, DataFrame.StringValue "job1"]
+                        , [DataFrame.IntegerValue 2, DataFrame.StringValue "job2"]
+                        , [DataFrame.IntegerValue 3, DataFrame.StringValue "job3"]
+                        , [DataFrame.IntegerValue 4, DataFrame.StringValue "job4"]
+                        , [DataFrame.IntegerValue 5, DataFrame.StringValue "job5"]
+                        ]
+      result `shouldBe` Right (DataFrame.DataFrame expectedColumns expectedRows)
 
 
 
 
+  describe "Helper Functions:" $ do
+    describe "fetchTableFromDatabase" $ do
+      it "fetches an existing table from the database" $ do
+        let result = Lib2.fetchTableFromDatabase "employees"
+        result `shouldBe` Right ("employees", snd D.tableEmployees)
+    describe "getColumns" $ do
+      it "gets columns from a DataFrame" $ do
+        let df = snd D.tableEmployees
+        Lib2.getColumns df `shouldBe` [DataFrame.Column "id" DataFrame.IntegerType, DataFrame.Column "name" DataFrame.StringType, DataFrame.Column "surname" DataFrame.StringType]
+    describe "findColumnIndex" $ do
+      it "finds the index of an existing column" $ do
+        Lib2.findColumnIndex [DataFrame.Column "name" DataFrame.StringType, DataFrame.Column "age" DataFrame.IntegerType] "name" `shouldBe` Just 0
+        Lib2.findColumnIndex [DataFrame.Column "name" DataFrame.StringType, DataFrame.Column "age" DataFrame.IntegerType] "age" `shouldBe` Just 1
+  describe "Parsers:" $ do
+    describe "parseLogicalOp" $ do
+      it "parses OR as LogicalOp" $ do
+        let input = "OR"
+        Lib2.runParser Lib2.parseLogicalOp input `shouldBe` Right ("", Lib2.Or)
+    describe "parseOperator" $ do
+      it "parses = as Equals" $ do
+          let input = "="
+          Lib2.runParser Lib2.parseOperator input `shouldBe` Right ("", Lib2.Equals)
+      it "parses <> as NotEquals" $ do
+          let input = "<>"
+          Lib2.runParser Lib2.parseOperator input `shouldBe` Right ("", Lib2.NotEquals)
+      it "parses >= as GreaterThanOrEqual" $ do
+          let input = ">="
+          Lib2.runParser Lib2.parseOperator input `shouldBe` Right ("", Lib2.GreaterThanOrEqual)
+      it "parses <= as LessThanOrEqual" $ do
+          let input = "<="
+          Lib2.runParser Lib2.parseOperator input `shouldBe` Right ("", Lib2.LessThanOrEqual)
+    describe "parseWhitespace" $ do
+      it "parses multiple spaces" $ do
+        let input = "   "
+        Lib2.runParser Lib2.parseWhitespace input `shouldBe` Right ("", "")
+    describe "parseQuotationMarks" $ do
+      it "parses single quotation mark" $ do
+        let input = "'"
+        Lib2.runParser Lib2.parseQuotationMarks input `shouldBe` Right ("", "")
+    describe "parseWhereStatement" $ do
+      it "parses valid WHERE statement with one condition" $ do
+        let input = "WHERE column1 = 'value1'"
+        Lib2.runParser Lib2.parseWhereStatement input `shouldSatisfy` isRight
 
-
-
-
+      it "parses valid WHERE statement with multiple conditions (OR)" $ do
+        let input = "WHERE column1 = 'value1' OR column2 <> 'value2'"
+        Lib2.runParser Lib2.parseWhereStatement input `shouldSatisfy` isRight
   describe "Unknown string" $ do
     it "Returns 'Not implemented: parseStatement' for an unknown statement" $ do
       let parsed = Lib2.parseStatement "unknown statement"
@@ -116,6 +195,29 @@ main = hspec $ do
         Right _ -> expectationFailure "Expected parsing failure, but returned a valid statement"
 
 
+
+
+
+  -- describe "Joining Tables" $ do
+  --   it "executes an inner join correctly with simple equality condition" $ do
+  --     let joinCondition = Just (Lib2.Comparison (Lib2.Where ("employees", "id") Lib2.Equals (Left ("employees2", "id"))) [])
+  --     let statement = Lib2.SelectStatement Lib2.All ["employees", "employees2"] joinCondition
+  --     let expectedColumns = [ DataFrame.Column "id" DataFrame.IntegerType
+  --                           , DataFrame.Column "name" DataFrame.StringType
+  --                           , DataFrame.Column "surname" DataFrame.StringType
+  --                           , DataFrame.Column "job" DataFrame.StringType
+  --                           ]
+  --     let expectedRows = [ [Lib2.IntegerValue 1, Lib2.StringValue "Ed", StringValue "Po", Lib2.StringValue "job1"]
+  --                       , [Lib2.IntegerValue 2, Lib2.StringValue "Vi", StringValue "Dl", Lib2.StringValue "job2"]
+  --                       -- Add expected rows for joined tables
+  --                       ]
+  --     let expectedOutput = Right (DataFrame.DataFrame expectedColumns expectedRows)
+  --     Lib2.executeStatement statement `shouldBe` expectedOutput
+
+  --   it "handles non-matching join conditions" $ do
+  --     let joinCondition = Just (Lib2.Comparison (Lib2.Where ("employees", "id") Lib2.Equals (Left ("employees2", "nonExistingId"))) [])
+  --     let statement = Lib2.SelectStatement Lib2.All ["employees", "employees2"] joinCondition
+  --     Lib2.executeStatement statement `shouldSatisfy` isLeft -- Expecting an error due to non-matching condition
 
 
 
@@ -153,78 +255,20 @@ main = hspec $ do
   --       let expectedRows = [[DataFrame.StringValue "Ed", DataFrame.StringValue "Dl"]]
   --       result `shouldBe` Right (DataFrame.DataFrame expectedColumns expectedRows)
 
-  --     it "Handles SelectStatement with single column without Condition" $ do
-  --       let inputStatement = Lib2.SelectStatement Lib2.All "employees" (Just (Lib2.Comparison (Lib2.Where "name" Lib2.Equals "Vi") [(Lib2.Or, Lib2.Where "name" Lib2.Equals "KN")]))
-  --       let expectedColumns = [DataFrame.Column "id" DataFrame.IntegerType, DataFrame.Column "name" DataFrame.StringType, DataFrame.Column "surname" DataFrame.StringType]
-  --       let expectedRows = [ [DataFrame.IntegerValue 1, DataFrame.StringValue "Vi", DataFrame.StringValue "Po"]
-  --                           ,[DataFrame.IntegerValue 3, DataFrame.StringValue "KN", DataFrame.StringValue "KS"]
-  --                         ]
-  --       let expectedOutput = Right (DataFrame.DataFrame expectedColumns expectedRows)
-  --       let result = Lib2.executeStatement inputStatement
-  --       result `shouldBe` expectedOutput
+      -- it "Handles SelectStatement with SUM aggregation" $ do
+      --   let inputStatement = Lib2.SelectStatement (Lib2.Aggregation [(Lib2.Sum, "id")]) "employees" Nothing
+      --   let expectedOutput = Right (DataFrame.DataFrame [DataFrame.Column "Sum(id)" DataFrame.IntegerType] [[DataFrame.IntegerValue 15]])
+      --   let result = Lib2.executeStatement inputStatement
+      --   result `shouldBe` expectedOutput
 
-  --     it "Handles SelectStatement with SUM aggregation" $ do
-  --       let inputStatement = Lib2.SelectStatement (Lib2.Aggregation [(Lib2.Sum, "id")]) "employees" Nothing
-  --       let expectedOutput = Right (DataFrame.DataFrame [DataFrame.Column "Sum(id)" DataFrame.IntegerType] [[DataFrame.IntegerValue 15]])
-  --       let result = Lib2.executeStatement inputStatement
-  --       result `shouldBe` expectedOutput
-
-  --     it "Handles SelectStatement with SUM and MIN aggregations" $ do
-  --       let inputStatement = Lib2.SelectStatement (Lib2.Aggregation [(Lib2.Sum, "id"), (Lib2.Min, "id")]) "employees" Nothing
-  --       let expectedOutput = Right (DataFrame.DataFrame [DataFrame.Column "Sum(id)" DataFrame.IntegerType, DataFrame.Column "Min(id)" DataFrame.IntegerType] [[DataFrame.IntegerValue 15, DataFrame.IntegerValue 1]])
-  --       let result = Lib2.executeStatement inputStatement
-  --       result `shouldBe` expectedOutput
+      -- it "Handles SelectStatement with SUM and MIN aggregations" $ do
+      --   let inputStatement = Lib2.SelectStatement (Lib2.Aggregation [(Lib2.Sum, "id"), (Lib2.Min, "id")]) "employees" Nothing
+      --   let expectedOutput = Right (DataFrame.DataFrame [DataFrame.Column "Sum(id)" DataFrame.IntegerType, DataFrame.Column "Min(id)" DataFrame.IntegerType] [[DataFrame.IntegerValue 15, DataFrame.IntegerValue 1]])
+      --   let result = Lib2.executeStatement inputStatement
+      --   result `shouldBe` expectedOutput
 
 
-  -- describe "Helper Functions:" $ do
-  --   describe "fetchTableFromDatabase" $ do
-  --     it "fetches an existing table from the database" $ do
-  --       let result = Lib2.fetchTableFromDatabase "employees"
-  --       result `shouldBe` Right ("employees", snd D.tableEmployees)
-  --   describe "getColumns" $ do
-  --     it "gets columns from a DataFrame" $ do
-  --       let df = snd D.tableEmployees
-  --       Lib2.getColumns df `shouldBe` [DataFrame.Column "id" DataFrame.IntegerType, DataFrame.Column "name" DataFrame.StringType, DataFrame.Column "surname" DataFrame.StringType]
-  --   describe "findColumnIndex" $ do
-  --     it "finds the index of an existing column" $ do
-  --       Lib2.findColumnIndex [DataFrame.Column "name" DataFrame.StringType, DataFrame.Column "age" DataFrame.IntegerType] "name" `shouldBe` Just 0
-  --       Lib2.findColumnIndex [DataFrame.Column "name" DataFrame.StringType, DataFrame.Column "age" DataFrame.IntegerType] "age" `shouldBe` Just 1
 
-
-  -- describe "Parsers:" $ do
-  --   describe "parseLogicalOp" $ do
-  --     it "parses OR as LogicalOp" $ do
-  --       let input = "OR"
-  --       Lib2.runParser Lib2.parseLogicalOp input `shouldBe` Right ("", Lib2.Or)
-  --   describe "parseOperator" $ do
-  --     it "parses = as Equals" $ do
-  --         let input = "="
-  --         Lib2.runParser Lib2.parseOperator input `shouldBe` Right ("", Lib2.Equals)
-  --     it "parses <> as NotEquals" $ do
-  --         let input = "<>"
-  --         Lib2.runParser Lib2.parseOperator input `shouldBe` Right ("", Lib2.NotEquals)
-  --     it "parses >= as GreaterThanOrEqual" $ do
-  --         let input = ">="
-  --         Lib2.runParser Lib2.parseOperator input `shouldBe` Right ("", Lib2.GreaterThanOrEqual)
-  --     it "parses <= as LessThanOrEqual" $ do
-  --         let input = "<="
-  --         Lib2.runParser Lib2.parseOperator input `shouldBe` Right ("", Lib2.LessThanOrEqual)
-  --   describe "parseWhitespace" $ do
-  --     it "parses multiple spaces" $ do
-  --       let input = "   "
-  --       Lib2.runParser Lib2.parseWhitespace input `shouldBe` Right ("", "")
-  --   describe "parseQuotationMarks" $ do
-  --     it "parses single quotation mark" $ do
-  --       let input = "'"
-  --       Lib2.runParser Lib2.parseQuotationMarks input `shouldBe` Right ("", "")
-  --   describe "parseWhereStatement" $ do
-  --     it "parses valid WHERE statement with one condition" $ do
-  --       let input = "WHERE column1 = 'value1'"
-  --       Lib2.runParser Lib2.parseWhereStatement input `shouldSatisfy` isRight
-
-  --     it "parses valid WHERE statement with multiple conditions (OR)" $ do
-  --       let input = "WHERE column1 = 'value1' OR column2 <> 'value2'"
-  --       Lib2.runParser Lib2.parseWhereStatement input `shouldSatisfy` isRight
   
 
 
@@ -241,20 +285,25 @@ main = hspec $ do
     --                     ]
     --   result `shouldBe` Right (DataFrame.DataFrame expectedColumns expectedRows)
 
-  --     it "Handles SelectStatement with multiple columns and single Condition" $ do
-  --       let condition = Just $ Lib2.Comparison (Lib2.Where "name" Lib2.Equals (DataFrame.StringValue "Ed")) []
-  --       let result = Lib2.executeStatement (Lib2.SelectStatement (Lib2.SelectedColumns ["name", "surname"]) "employees" condition) D.database
-  --       let expectedColumns = [DataFrame.Column "name" DataFrame.StringType, DataFrame.Column "surname" DataFrame.StringType]
-  --       let expectedRows = [[DataFrame.StringValue "Ed", DataFrame.StringValue "Dl"]]
-  --       result `shouldBe` Right (DataFrame.DataFrame expectedColumns expectedRows)
+--     it "Handles SelectStatement with multiple columns and single Condition" $ do
+--       let condition = Just $ Lib2.Comparison (Lib2.Where "name" Lib2.Equals (DataFrame.StringValue "Ed")) []
+--       let result = Lib2.executeStatement (Lib2.SelectStatement (Lib2.SelectedColumns ["name", "surname"]) "employees" condition) D.database
+--       let expectedColumns = [DataFrame.Column "name" DataFrame.StringType, DataFrame.Column "surname" DataFrame.StringType]
+--       let expectedRows = [[DataFrame.StringValue "Ed", DataFrame.StringValue "Dl"]]
+--       result `shouldBe` Right (DataFrame.DataFrame expectedColumns expectedRows)
 
-  --     it "Handles SelectStatement with single column without Condition" $ do
-  --       let inputStatement = Lib2.SelectStatement Lib2.All "employees" (Just (Lib2.Comparison (Lib2.Where "name" Lib2.Equals (DataFrame.StringValue "Vi")) [(Lib2.Or, Lib2.Where "name" Lib2.Equals (DataFrame.StringValue "KN"))]))
-  --       let expectedColumns = [DataFrame.Column "id" DataFrame.IntegerType, DataFrame.Column "name" DataFrame.StringType, DataFrame.Column "surname" DataFrame.StringType]
-  --       let expectedRows = [ [DataFrame.IntegerValue 1, DataFrame.StringValue "Vi", DataFrame.StringValue "Po"]
-  --                         ,[DataFrame.IntegerValue 3, DataFrame.StringValue "KN", DataFrame.StringValue "KS"]
-  --                       ]
-  --       let expectedOutput = Right (DataFrame.DataFrame expectedColumns expectedRows)
-  --       let result = Lib2.executeStatement inputStatement D.database
-  --       result `shouldBe` expectedOutput
+--     it "Handles SelectStatement with single column without Condition" $ do
+--       let inputStatement = Lib2.SelectStatement Lib2.All "employees" (Just (Lib2.Comparison (Lib2.Where "name" Lib2.Equals (DataFrame.StringValue "Vi")) [(Lib2.Or, Lib2.Where "name" Lib2.Equals (DataFrame.StringValue "KN"))]))
+--       let expectedColumns = [DataFrame.Column "id" DataFrame.IntegerType, DataFrame.Column "name" DataFrame.StringType, DataFrame.Column "surname" DataFrame.StringType]
+--       let expectedRows = [ [DataFrame.IntegerValue 1, DataFrame.StringValue "Vi", DataFrame.StringValue "Po"]
+--                         ,[DataFrame.IntegerValue 3, DataFrame.StringValue "KN", DataFrame.StringValue "KS"]
+--                       ]
+--       let expectedOutput = Right (DataFrame.DataFrame expectedColumns expectedRows)
+--       let result = Lib2.executeStatement inputStatement D.database
+--       result `shouldBe` expectedOutput
+
+
+
+
+
 
