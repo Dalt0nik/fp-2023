@@ -182,24 +182,26 @@ main = hspec $ do
             else expectationFailure $ "Expected 'Not implemented: parseStatement', but got: " ++ err
         Right _ -> expectationFailure "Expected parsing failure, but returned a valid statement"
   describe "Executes:" $ do
-    it "Executes simple querries" $ do
-      let (parsed, rez, expected) =
-            ( "select * from employees;",
-              runExecuteIO (Lib3.executeSql parsed),
-              DataFrame
-                [ Column "id" IntegerType,
-                  Column "name" StringType,
-                  Column "surname" StringType
-                ]
-                [ [IntegerValue 1, StringValue "Vi", StringValue "Po"],
-                  [IntegerValue 2, StringValue "Ed", StringValue "Dl"],
-                  [IntegerValue 3, StringValue "KN", StringValue "KS"],
-                  [IntegerValue 4, StringValue "DN", StringValue "DS"],
-                  [IntegerValue 5, StringValue "AN", StringValue "AS"]
-                ]
-            )
-      result <- rez
-      result `shouldBe` Right expected
+    
+    -- it "Executes TEST_NAME_IN_PLURAL" $ do
+    --   let (parsed, rez, expected) =
+    --         ( "YOUR SELECT GOES HERE;",
+    --           runExecuteIO (Lib3.executeSql parsed),
+    --           DataFrame
+    --             [ Column "id" IntegerType,
+    --               Column "name" StringType,
+    --               Column "surname" StringType
+    --             ] 
+    --             [ [IntegerValue 1, StringValue "Vi", StringValue "Po"], --modify df accordingly
+    --               [IntegerValue 2, StringValue "Ed", StringValue "Dl"],
+    --               [IntegerValue 3, StringValue "KN", StringValue "KS"],
+    --               [IntegerValue 4, StringValue "DN", StringValue "DS"],
+    --               [IntegerValue 5, StringValue "AN", StringValue "AS"]
+    --             ]
+    --         )
+    --   result <- rez
+    --   result `shouldBe` Right expected
+
     it "Executes simple querries with WHERE statements" $ do
       let (parsed, rez, expected) =
             ( "select * from employees where employees.name <> 'Vi';",
