@@ -22,6 +22,7 @@ module Lib3
   )
 where
 
+import Data.Either (rights)
 import Control.Monad.Free (Free (..), liftF)
 import DataFrame (DataFrame (..), Row, Column (..), ColumnType (..), Value (..))
 import Data.Time ( UTCTime )
@@ -265,7 +266,8 @@ executeSql sql = do
         return $ Right $ DataFrame [column] [[value]]
     _ | "select" `isPrefixOf` sql' -> do
         parsedStatement <- parseStatement sql
-        executeStatementFree parsedStatement
+        executeStatement parsedStatement
+        --executeStatementFree parsedStatement
     _ | "insert" `isPrefixOf` sql' -> do
         parsedStatement <- parseStatement sql
         executeInsert parsedStatement
@@ -327,20 +329,20 @@ deserializeDataFrame jsonStr =
     Left err -> Left $ "Failed to decode JSON: " ++ err
 
 
-
-
 --EXECUTE SELECT FROM LIB2
 
  -- Executes a parsed statement. Produces a DataFrame. Uses
 -- InMemoryTables.databases a source of data.
 -- Execute a SELECT statement
-executeStatement :: Lib2.ParsedStatement -> Either ErrorMessage DataFrame
+executeStatement :: Lib2.ParsedStatement -> Execution (Either ErrorMessage DataFrame)
 executeStatement (Lib2.SelectStatement columns tableNames maybeCondition) = do
 
-  -- Fetch the specified tables
-  tableDataList <- mapM fetchTableFromDatabase tableNames
-
-  -- Check if aggregation is requested
+  --Fetch the specified tables
+  --tableDataList <- mapM fetchTableFromDatabase (tableName1:rest)
+  tableDataList <- mapM loadFile tableNames
+  let tablesDF = rights tableDataList
+  let combinedList = zip tableNames tablesDF
+  
   let isAggregationRequested = case columns of
         Lib2.Aggregation _ -> True
         _ -> False
@@ -354,16 +356,16 @@ executeStatement (Lib2.SelectStatement columns tableNames maybeCondition) = do
 
   -- Perform inner join if requested
   if isJoinRequested then
-     if numberOfTables == 2 then executeJoin tableDataList maybeCondition columns isAggregationRequested else Left "only two tables can be joined"
+     if numberOfTables == 2 then executeJoin combinedList maybeCondition columns isAggregationRequested else return $ Left "only two tables can be joined"
   else
-    if numberOfTables /= 1 then Left "only one table should be provided" else executeNoJoin tableDataList maybeCondition columns isAggregationRequested
+    if numberOfTables /= 1 then return (Left "only one table should be provided") else executeNoJoin combinedList maybeCondition columns isAggregationRequested
 
-executeStatement Lib2.ShowTablesStatement = Right $ DataFrame [Column "TABLE NAME" StringType] (map (\tableName -> [StringValue tableName]) (Lib2.showTables database))
+executeStatement Lib2.ShowTablesStatement = return $ Right $ DataFrame [Column "TABLE NAME" StringType] (map (\tableName -> [StringValue tableName]) (Lib2.showTables database))
 executeStatement (Lib2.ShowTableStatement tableName) =
   case lookup (map toLower tableName) database of
-    Just (DataFrame columns _) -> Right $ DataFrame [Column "COLUMN NAMES" StringType] (map (\col -> [StringValue (Lib2.extractColumnName col)]) columns)
-    Nothing -> Left (tableName ++ " not found")
-executeStatement _ = Left "Not implemented: executeStatement"
+    Just (DataFrame columns _) -> return $ Right $ DataFrame [Column "COLUMN NAMES" StringType] (map (\col -> [StringValue (Lib2.extractColumnName col)]) columns)
+    Nothing -> return $ Left (tableName ++ " not found")
+executeStatement _ = return $ Left "Not implemented: executeStatement"
 
 -- -- Function to execute aggregation functions
 executeAggregationFunction :: Lib2.AggregateFunction -> Maybe Int -> [Row] -> Value
@@ -465,7 +467,7 @@ involvesMultipleTablesInWhere (Lib2.Where (tableName1, _) _ (Left (tableName2, _
 involvesMultipleTablesInWhere _ = False
 
 -- Function to execute an inner join
-executeJoin :: [(TableName, DataFrame)] -> Maybe Lib2.Condition -> Lib2.Columns -> Bool -> Either ErrorMessage DataFrame
+executeJoin :: [(TableName, DataFrame)] -> Maybe Lib2.Condition -> Lib2.Columns -> Bool -> Execution (Either ErrorMessage DataFrame)
 executeJoin tableDataList maybeCondition columns isAggregationRequested = do
     -- Extract tables and condition
     let (table1Name, table1) = head tableDataList
@@ -486,13 +488,22 @@ executeJoin tableDataList maybeCondition columns isAggregationRequested = do
     let selectedColumnsTable2 = getColumns table2
 
     -- Ensure the join columns exist in their respective tables
-    joinColumnIndexTable1 <- case findColumnIndex selectedColumnsTable1 joinColumnNameTable1 of
+    -- joinColumnIndexTable1 <- case findColumnIndex selectedColumnsTable1 joinColumnNameTable1 of
+    --   Just index -> return $ Right index
+    --   Nothing -> return $ Left "Column not found in table1"
+
+    -- joinColumnIndexTable2 <- case findColumnIndex selectedColumnsTable2 joinColumnNameTable2 of
+    --   Just index -> return $ Right index
+    --   Nothing -> return $ Left "Column not found in table2"
+
+    joinColumnIndexTable1 <- either (const (return 0)) return $ case findColumnIndex selectedColumnsTable1 joinColumnNameTable1 of
       Just index -> Right index
       Nothing -> Left "Column not found in table1"
 
-    joinColumnIndexTable2 <- case findColumnIndex selectedColumnsTable2 joinColumnNameTable2 of
+    joinColumnIndexTable2 <- either (const (return 0)) return $ case findColumnIndex selectedColumnsTable2 joinColumnNameTable2 of
       Just index -> Right index
       Nothing -> Left "Column not found in table2"
+
 
     let resultColumns = case columns of
           Lib2.All -> selectedColumnsTable1 ++ selectedColumnsTable2
@@ -565,7 +576,7 @@ innerJoin joinColumnIndexTable1 joinColumnIndexTable2 table1 table2 maybeConditi
       in prefix1 ++ suffix1 ++ prefix2 ++ suffix2
 
 -- Function to execute selection without join
-executeNoJoin :: [(TableName, DataFrame)] -> Maybe Lib2.Condition -> Lib2.Columns -> Bool -> Either ErrorMessage DataFrame
+executeNoJoin :: [(TableName, DataFrame)] -> Maybe Lib2.Condition -> Lib2.Columns -> Bool -> Execution (Either ErrorMessage DataFrame)
 executeNoJoin tableDataList maybeCondition columns isAggregationRequested = do
   -- Fetch the specified table
   let (tableName, table) = head tableDataList
@@ -579,16 +590,16 @@ executeNoJoin tableDataList maybeCondition columns isAggregationRequested = do
       else executeSelection table filteredRows columns
 
 
-executeAggregation :: DataFrame -> [Row] -> Lib2.Columns -> Either ErrorMessage DataFrame
+executeAggregation :: DataFrame -> [Row] -> Lib2.Columns -> Execution (Either ErrorMessage DataFrame)
 executeAggregation table filteredRows columns = do
   let aggregationFunctions = case columns of
           Lib2.Aggregation funcs -> funcs
           _ -> []
 
   let resultRow = map (\(aggFunc, colName) -> executeAggregationFunction aggFunc (findColumnIndex (getColumns table) colName) filteredRows) aggregationFunctions
-  return $ DataFrame (createAggregationColumns aggregationFunctions) [resultRow]
+  return $ Right $ DataFrame (createAggregationColumns aggregationFunctions) [resultRow]
 
-executeSelection :: DataFrame -> [Row] -> Lib2.Columns -> Either ErrorMessage DataFrame
+executeSelection :: DataFrame -> [Row] -> Lib2.Columns -> Execution (Either ErrorMessage DataFrame)
 executeSelection table filteredRows columns = do
     let selectedColumnNames = case columns of
             Lib2.All -> map Lib2.extractColumnName (getColumns table)
@@ -599,5 +610,6 @@ executeSelection table filteredRows columns = do
 
     let selectedRows = map (\row -> map (\i -> (row !! i)) selectedColumnIndexes) filteredRows
 
-    return $ DataFrame selectedColumns selectedRows
+    return $ Right $ DataFrame selectedColumns selectedRows
+
 
