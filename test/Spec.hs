@@ -4,8 +4,14 @@ import InMemoryTables qualified as D
 import qualified DataFrame
 import Lib1
 import qualified Lib2
+import qualified Lib3 
 import Test.Hspec
 
+
+-- mockDatabaseJSON :: String
+-- mockDatabaseJSON = "[[ ["id", "IntegerType"], ["name", "StringType"], ["surname", "StringType"] ], [ [{"contents":200,"tag":"IntegerValue"}, {"contents":"ooo","tag":"StringValue"}, {"contents":"tom","tag":"StringValue"}], [{"contents":200,"tag":"IntegerValue"}, {"contents":"ooo","tag":"StringValue"}, {"contents":"hellno","tag":"StringValue"}], [{"contents":100,"tag":"IntegerValue"}, {"contents":"ooo","tag":"StringValue"}, {"contents":"hell","tag":"StringValue"}], [{"contents":69,"tag":"IntegerValue"}, {"contents":"don","tag":"StringValue"}, {"contents":"don","tag":"StringValue"}] ]]"
+
+-- Lib3.deserializeDataFrame mockDatabaseJSON 
 
 
 main :: IO ()
@@ -82,10 +88,6 @@ main = hspec $ do
       let input = "SELECT employees.id, employees3.job FROM employees, employees3 WHERE employees.id = employees3.id"
       let expectedOutput = Right (Lib2.SelectStatement (Lib2.SelectedColumns [("employees", "id"), ("employees3", "job")]) ["employees", "employees3"] (Just (Lib2.Comparison (Lib2.Where ("employees", "id") Lib2.Equals (Left ("employees3", "id"))) [])))
       Lib2.parseStatement input `shouldBe` expectedOutput
-
-
-
-
   describe "ExecuteStatement" $ do
     it "Handles SelectStatement with single column without Condition" $ do
       let result = Lib2.executeStatement (Lib2.SelectStatement (Lib2.SelectedColumns [("employees", "name")]) ["employees"] Nothing)
@@ -106,19 +108,6 @@ main = hspec $ do
                           , [DataFrame.StringValue "b"]
                           ]
       result `shouldBe` Right (DataFrame.DataFrame expectedColumns expectedRows)
-    -- it "Handles SELECT statement with joinded tables" $ do
-    --   let result Lib2.executeStatement ( Lib2.SelectStatement (Lib2.SelectedColumns [("employees", "id"), ("employees3", "job")]) ["employees", "employees3"] (Just (Lib2.Comparison (Lib2.Where ("employees", "id") Lib2.Equals (Left ("employees3", "id"))) [])))
-    --   let expectedColumns = [DataFrame.Column "id" DataFrame.StringType, DataFrame.Column "job" DataFrame.StringType]
-    --   let expectedRows = [ [DataFrame.StringValue "1", DataFrame.StringValue "job1"]
-    --                       , [DataFrame.StringValue "2", DataFrame.StringValue "job2"]
-    --                       , [DataFrame.StringValue "3", DataFrame.StringValue "job3"]
-    --                       , [DataFrame.StringValue "4", DataFrame.StringValue "job4"]
-    --                       , [DataFrame.StringValue "5", DataFrame.StringValue "job5"]
-    --                       ]
-    --   result `shouldBe` Right (DataFrame.DataFrame expectedColumns expectedRows)
-
-
-
     it "Handles SELECT statement with joined tables" $ do
       let result = Lib2.executeStatement $ Lib2.SelectStatement
             (Lib2.SelectedColumns [("employees", "id"), ("employees3", "job")])
@@ -133,10 +122,6 @@ main = hspec $ do
                         , [DataFrame.IntegerValue 5, DataFrame.StringValue "job5"]
                         ]
       result `shouldBe` Right (DataFrame.DataFrame expectedColumns expectedRows)
-
-
-
-
   describe "Helper Functions:" $ do
     describe "fetchTableFromDatabase" $ do
       it "fetches an existing table from the database" $ do
@@ -195,9 +180,38 @@ main = hspec $ do
         Right _ -> expectationFailure "Expected parsing failure, but returned a valid statement"
 
 
+-- this bit below needs fixing
 
+  -- describe "Lib3 deserialize"
+  --   it "checks if serialization" $ do
 
+  -- describe "Lib3 Tests" $ do
+  --   context "when loading data" $ do
+  --     it "correctly decodes mock data" $ do
+  --       let decodedDb = decodeMockDatabase mockDatabaseJSON
+  --       decodedDb `shouldSatisfy` isRight
 
+  --   context "when inserting data" $ do
+  --     it "inserts data correctly" $ do
+  --       let Right mockDb = decodeMockDatabase mockDatabaseJSON
+  --       let newRecord = -- ... create a record to insert
+  --       let updatedDb = -- ... call your insert function here
+  --       -- Assert the expected outcome
+
+  --   context "when updating data" $ do
+  --     it "updates data correctly" $ do
+  --       -- Similar structure for update test
+
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
   -- describe "Joining Tables" $ do
   --   it "executes an inner join correctly with simple equality condition" $ do
   --     let joinCondition = Just (Lib2.Comparison (Lib2.Where ("employees", "id") Lib2.Equals (Left ("employees2", "id"))) [])
