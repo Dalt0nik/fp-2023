@@ -14,8 +14,6 @@ module Lib3
     ExecutionAlgebra(..),
     showTable,
     executeInsert, --i think we don't need to export this
-    --save,
-    --load,
     deserializeDataFrame,
     serializeDataFrame,
     executeStatement
@@ -69,9 +67,6 @@ getCurrentTime = liftF $ GetCurrentTime id
 
 parseStatement :: String -> Execution Lib2.ParsedStatement
 parseStatement input = liftF $ ParseStatement input id
-
-executeStatementFree :: Lib2.ParsedStatement -> Execution (Either ErrorMessage DataFrame)
-executeStatementFree statement = liftF $ ExecuteStatement statement id
 
 showTable :: TableName -> Execution (Either ErrorMessage DataFrame)
 showTable tableName = case fetchTableFromDatabase tableName of
@@ -267,7 +262,6 @@ executeSql sql = do
     _ | "select" `isPrefixOf` sql' -> do
         parsedStatement <- parseStatement sql
         executeStatement parsedStatement
-        --executeStatementFree parsedStatement
     _ | "insert" `isPrefixOf` sql' -> do
         parsedStatement <- parseStatement sql
         executeInsert parsedStatement
