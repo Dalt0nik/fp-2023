@@ -53,6 +53,7 @@ library
     , base >=4.7 && <5
     , bytestring
     , free
+    , mtl
     , time
     , transformers
   default-language: Haskell2010
@@ -73,9 +74,11 @@ executable fp2023-manipulate
     , extra
     , fp2023
     , free
+    , mtl
     , repline
     , terminal-size
     , time
+    , transformers
   default-language: Haskell2010
 
 executable fp2023-select-all
@@ -90,10 +93,13 @@ executable fp2023-select-all
   build-depends:
       aeson
     , base >=4.7 && <5
+    , bytestring
     , extra
     , fp2023
+    , mtl
     , repline
     , terminal-size
+    , transformers
   default-language: Haskell2010
 
 executable fp2023-select-more
@@ -108,10 +114,13 @@ executable fp2023-select-more
   build-depends:
       aeson
     , base >=4.7 && <5
+    , bytestring
     , extra
     , fp2023
+    , mtl
     , repline
     , terminal-size
+    , transformers
   default-language: Haskell2010
 
 test-suite fp2023-test
@@ -127,6 +136,10 @@ test-suite fp2023-test
   build-depends:
       aeson
     , base >=4.7 && <5
+    , bytestring
     , fp2023
+    , free
     , hspec
+    , mtl
+    , transformers
   default-language: Haskell2010

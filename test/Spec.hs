@@ -6,6 +6,9 @@ import Lib1
 import qualified Lib2
 import qualified Lib3 
 import Test.Hspec
+import Control.Monad.Trans.Except (runExceptT)
+import DataFrame (DataFrame (..), Row, Column (..), ColumnType (..), Value (..))
+import Control.Monad.Free (Free (..))
 
 
 -- mockDatabaseJSON :: String
@@ -162,126 +165,185 @@ main = hspec $ do
             then return ()
             else expectationFailure $ "Expected 'Not implemented: parseStatement', but got: " ++ err
         Right _ -> expectationFailure "Expected parsing failure, but returned a valid statement"
-
--- this bit below needs fixing
-
-  -- describe "Lib3 deserialize"
-  --   it "checks if serialization" $ do
-
-  -- describe "Lib3 Tests" $ do
-  --   context "when loading data" $ do
-  --     it "correctly decodes mock data" $ do
-  --       let decodedDb = decodeMockDatabase mockDatabaseJSON
-  --       decodedDb `shouldSatisfy` isRight
-
-  --   context "when inserting data" $ do
-  --     it "inserts data correctly" $ do
-  --       let Right mockDb = decodeMockDatabase mockDatabaseJSON
-  --       let newRecord = -- ... create a record to insert
-  --       let updatedDb = -- ... call your insert function here
-  --       -- Assert the expected outcome
-
-  --   context "when updating data" $ do
-  --     it "updates data correctly" $ do
-  --       -- Similar structure for update test
-
-  -- describe "Joining Tables" $ do
-  --   it "executes an inner join correctly with simple equality condition" $ do
-  --     let joinCondition = Just (Lib2.Comparison (Lib2.Where ("employees", "id") Lib2.Equals (Left ("employees2", "id"))) [])
-  --     let statement = Lib2.SelectStatement Lib2.All ["employees", "employees2"] joinCondition
-  --     let expectedColumns = [ DataFrame.Column "id" DataFrame.IntegerType
-  --                           , DataFrame.Column "name" DataFrame.StringType
-  --                           , DataFrame.Column "surname" DataFrame.StringType
-  --                           , DataFrame.Column "job" DataFrame.StringType
-  --                           ]
-  --     let expectedRows = [ [Lib2.IntegerValue 1, Lib2.StringValue "Ed", StringValue "Po", Lib2.StringValue "job1"]
-  --                       , [Lib2.IntegerValue 2, Lib2.StringValue "Vi", StringValue "Dl", Lib2.StringValue "job2"]
-  --                       -- Add expected rows for joined tables
-  --                       ]
-  --     let expectedOutput = Right (DataFrame.DataFrame expectedColumns expectedRows)
-  --     Lib2.executeStatement statement `shouldBe` expectedOutput
-
-  --   it "handles non-matching join conditions" $ do
-  --     let joinCondition = Just (Lib2.Comparison (Lib2.Where ("employees", "id") Lib2.Equals (Left ("employees2", "nonExistingId"))) [])
-  --     let statement = Lib2.SelectStatement Lib2.All ["employees", "employees2"] joinCondition
-  --     Lib2.executeStatement statement `shouldSatisfy` isLeft -- Expecting an error due to non-matching condition
+  
 
 
------------------------- DIDZIOJI DALIS YRA PERTVARKYTA-----------------  
+  
+  
+  
+  
+  
+  describe "Executes:" $ do
+    -- it "Executes TEST_NAME_IN_PLURAL" $ do
+    --   let (parsed, rez, expected) =
+    --         ( "YOUR SELECT GOES HERE;",
+    --           runExecuteIO (Lib3.executeSql parsed),
+    --           DataFrame
+    --             [ Column "id" IntegerType,
+    --               Column "name" StringType,
+    --               Column "surname" StringType
+    --             ] 
+    --             [ [IntegerValue 1, StringValue "Vi", StringValue "Po"], --modify df accordingly
+    --               [IntegerValue 2, StringValue "Ed", StringValue "Dl"],
+    --               [IntegerValue 3, StringValue "KN", StringValue "KS"],
+    --               [IntegerValue 4, StringValue "DN", StringValue "DS"],
+    --               [IntegerValue 5, StringValue "AN", StringValue "AS"]
+    --             ]
+    --         )
+    --   result <- rez
+    --   result `shouldBe` Right expected
 
-  -- describe "Lib2.executeStatement:" $ do
+    it "Executes simple querries with WHERE statements" $ do
+      let (parsed, rez, expected) =
+            ( "select * from employees where employees.name <> 'Vi';",
+              runExecuteIO (Lib3.executeSql parsed),
+              DataFrame
+                [ Column "id" IntegerType,
+                  Column "name" StringType,
+                  Column "surname" StringType
+                ]
+                [ [IntegerValue 2, StringValue "Ed", StringValue "Dl"],
+                  [IntegerValue 3, StringValue "KN", StringValue "KS"],
+                  [IntegerValue 4, StringValue "DN", StringValue "DS"],
+                  [IntegerValue 5, StringValue "AN", StringValue "AS"]
+                ]
+            )
+      result <- rez
+      result `shouldBe` Right expected
+    it "Executes inserts" $ do
+      let (parsed, rez, expected) =
+            ( "insert into employees (id, name, surname) values (69, 'a','b');",
+              runExecuteIO (Lib3.executeSql parsed),
+              DataFrame
+                [ Column "id" IntegerType,
+                  Column "name" StringType,
+                  Column "surname" StringType
+                ]
+                [ [IntegerValue 1, StringValue "Vi", StringValue "Po"],
+                  [IntegerValue 2, StringValue "Ed", StringValue "Dl"],
+                  [IntegerValue 3, StringValue "KN", StringValue "KS"],
+                  [IntegerValue 4, StringValue "DN", StringValue "DS"],
+                  [IntegerValue 5, StringValue "AN", StringValue "AS"],
+                  [IntegerValue 69, StringValue "a", StringValue "b"]
+                ]
+            )
+      result <- rez
+      result `shouldBe` Right expected
+    it "Executes updates" $ do
+      let (parsed, rez, expected) =
+            ( "update employees set name = 'ar' , id = 100 where employees.surname <> 'Dl' ;",
+              runExecuteIO (Lib3.executeSql parsed),
+              DataFrame
+                [ Column "id" IntegerType,
+                  Column "name" StringType,
+                  Column "surname" StringType
+                ]
+                [ [IntegerValue 100, StringValue "ar", StringValue "Po"],
+                  [IntegerValue 2, StringValue "Ed", StringValue "Dl"],
+                  [IntegerValue 100, StringValue "ar", StringValue "KS"],
+                  [IntegerValue 100, StringValue "ar", StringValue "DS"],
+                  [IntegerValue 100, StringValue "ar", StringValue "AS"]
+                ]
+            )
+      result <- rez
+      result `shouldBe` Right expected
+    it "Executes deletes" $ do
+      let (parsed, rez, expected) =
+            ( "delete from employees where employees.surname <> 'Dl';;",
+              runExecuteIO (Lib3.executeSql parsed),
+              DataFrame
+                [ Column "id" IntegerType,
+                  Column "name" StringType,
+                  Column "surname" StringType
+                ]
+                [ 
+                  [IntegerValue 2, StringValue "Ed", StringValue "Dl"]
+                ]
+            )
+      result <- rez
+      result `shouldBe` Right expected  
+    it "Fails to execute INSERT with non-existent table" $ do
+      let parsed = "insert into non_existent_table (id, name) values (1, 'Name');"
+      result <- runExecuteIO (Lib3.executeSql parsed)
+      result `shouldSatisfy` isLeft
+    it "Fails to execute INSERT with mismatching column types" $ do
+      let parsed = "insert into employees (id, name) values ('wrong_type', 'Name');"
+      result <- runExecuteIO (Lib3.executeSql parsed)
+      result `shouldSatisfy` isLeft
+    it "Fails to execute INSERT with wrong number of values" $ do
+      let parsed = "insert into employees (id, name, surname) values (1, 'Name');"
+      result <- runExecuteIO (Lib3.executeSql parsed)
+      result `shouldSatisfy` isLeft
+    it "Fails to execute DELETE on non-existent table" $ do
+      let parsed = "delete from non_existent_table where id = 1;"
+      result <- runExecuteIO (Lib3.executeSql parsed)
+      result `shouldSatisfy` isLeft
+    it "Fails to execute DELETE with incorrect condition" $ do
+      let parsed = "delete from employees where non_existent_column = 'Value';"
+      result <- runExecuteIO (Lib3.executeSql parsed)
+      result `shouldSatisfy` isLeft
+    it "Fails to execute UPDATE on non-existent table" $ do
+      let parsed = "update non_existent_table set name = 'New Name' where id = 1;"
+      result <- runExecuteIO (Lib3.executeSql parsed)
+      result `shouldSatisfy` isLeft
+    it "Fails to execute UPDATE with mismatching data types" $ do
+      let parsed = "update employees set id = 'wrong_type' where name = 'Name';"
+      result <- runExecuteIO (Lib3.executeSql parsed)
+      result `shouldSatisfy` isLeft
+    it "Fails to execute UPDATE with non-existent column" $ do
+      let parsed = "update employees set non_existent_column = 'Value' where id = 1;"
+      result <- runExecuteIO (Lib3.executeSql parsed)
+      result `shouldSatisfy` isLeft   
 
-  --   describe "ShowTableStatement" $ do
-  --     it "Returns expected columns from given table" $ do
-  --       let result = Lib2.executeStatement (Lib2.ShowTableStatement "employees")
-  --       let expectedColumns = [DataFrame.Column "COLUMN NAMES" DataFrame.StringType]
-  --       let expectedRows =[ [DataFrame.StringValue "id"]
-  --                         , [DataFrame.StringValue "name"]
-  --                         , [DataFrame.StringValue "surname"]
-  --                         ]
-  --       result `shouldBe` Right (DataFrame.DataFrame expectedColumns expectedRows)
-  --   describe "SelectStatement" $ do
-  --     it "Handles SelectStatement with single column without Condition" $ do
-  --       let result = Lib2.executeStatement (Lib2.SelectStatement (Lib2.SelectedColumns ["name"]) "employees" Nothing)
-  --       let expectedColumns = [DataFrame.Column "name" DataFrame.StringType]
-  --       let expectedRows = [ [DataFrame.StringValue "Vi"]
-  --                         , [DataFrame.StringValue "Ed"]
-  --                         , [DataFrame.StringValue "KN"]
-  --                         , [DataFrame.StringValue "DN"]
-  --                         , [DataFrame.StringValue "AN"]
-  --                         ]
-  --       result `shouldBe` Right (DataFrame.DataFrame expectedColumns expectedRows)
-
-  --     it "Handles SelectStatement with multiple columns and single Condition" $ do
-  --       let condition = Just $ Lib2.Comparison (Lib2.Where "name" Lib2.Equals "Ed") []
-  --       let result = Lib2.executeStatement (Lib2.SelectStatement (Lib2.SelectedColumns ["name", "surname"]) "employees" condition)
-  --       let expectedColumns = [ DataFrame.Column "name" DataFrame.StringType
-  --                             , DataFrame.Column "surname" DataFrame.StringType
-  --                             ]
-  --       let expectedRows = [[DataFrame.StringValue "Ed", DataFrame.StringValue "Dl"]]
-  --       result `shouldBe` Right (DataFrame.DataFrame expectedColumns expectedRows)
-
-      -- it "Handles SelectStatement with SUM aggregation" $ do
-      --   let inputStatement = Lib2.SelectStatement (Lib2.Aggregation [(Lib2.Sum, "id")]) "employees" Nothing
-      --   let expectedOutput = Right (DataFrame.DataFrame [DataFrame.Column "Sum(id)" DataFrame.IntegerType] [[DataFrame.IntegerValue 15]])
-      --   let result = Lib2.executeStatement inputStatement
-      --   result `shouldBe` expectedOutput
-
-      -- it "Handles SelectStatement with SUM and MIN aggregations" $ do
-      --   let inputStatement = Lib2.SelectStatement (Lib2.Aggregation [(Lib2.Sum, "id"), (Lib2.Min, "id")]) "employees" Nothing
-      --   let expectedOutput = Right (DataFrame.DataFrame [DataFrame.Column "Sum(id)" DataFrame.IntegerType, DataFrame.Column "Min(id)" DataFrame.IntegerType] [[DataFrame.IntegerValue 15, DataFrame.IntegerValue 1]])
-      --   let result = Lib2.executeStatement inputStatement
-      --   result `shouldBe` expectedOutput
-    -- it "Parses \"SELECT employees.name FROM employees\"" $ do
-    --   let result = Lib2.executeStatement (Lib2.SelectStatement (Lib2.SelectedColumns ["employees.name"]) "employees" Nothing) D.database
-    --   let expectedColumns = [DataFrame.Column "employees.name" DataFrame.StringType]
-    --   let expectedRows = [ [DataFrame.StringValue "Ed"]
-    --                     , [DataFrame.StringValue "Vi"]
-    --                     , [DataFrame.StringValue "KN"]
-    --                     , [DataFrame.StringValue "DN"]
-    --                     , [DataFrame.StringValue "AN"]
-    --                     ]
-    --   result `shouldBe` Right (DataFrame.DataFrame expectedColumns expectedRows)
-
---     it "Handles SelectStatement with multiple columns and single Condition" $ do
---       let condition = Just $ Lib2.Comparison (Lib2.Where "name" Lib2.Equals (DataFrame.StringValue "Ed")) []
---       let result = Lib2.executeStatement (Lib2.SelectStatement (Lib2.SelectedColumns ["name", "surname"]) "employees" condition) D.database
---       let expectedColumns = [DataFrame.Column "name" DataFrame.StringType, DataFrame.Column "surname" DataFrame.StringType]
---       let expectedRows = [[DataFrame.StringValue "Ed", DataFrame.StringValue "Dl"]]
---       result `shouldBe` Right (DataFrame.DataFrame expectedColumns expectedRows)
-
---     it "Handles SelectStatement with single column without Condition" $ do
---       let inputStatement = Lib2.SelectStatement Lib2.All "employees" (Just (Lib2.Comparison (Lib2.Where "name" Lib2.Equals (DataFrame.StringValue "Vi")) [(Lib2.Or, Lib2.Where "name" Lib2.Equals (DataFrame.StringValue "KN"))]))
---       let expectedColumns = [DataFrame.Column "id" DataFrame.IntegerType, DataFrame.Column "name" DataFrame.StringType, DataFrame.Column "surname" DataFrame.StringType]
---       let expectedRows = [ [DataFrame.IntegerValue 1, DataFrame.StringValue "Vi", DataFrame.StringValue "Po"]
---                         ,[DataFrame.IntegerValue 3, DataFrame.StringValue "KN", DataFrame.StringValue "KS"]
---                       ]
---       let expectedOutput = Right (DataFrame.DataFrame expectedColumns expectedRows)
---       let result = Lib2.executeStatement inputStatement D.database
---       result `shouldBe` expectedOutput
 
 
+runExecuteIO :: Lib3.Execution r -> IO r
+runExecuteIO (Pure r) = return r
+runExecuteIO (Free step) = do
+    next <- runStep step
+    runExecuteIO next
+    where
+        -- !!!we need to change this
+        runStep :: Lib3.ExecutionAlgebra a -> IO a
+        -- runStep (Lib3.GetCurrentTime next) = getCurrentTime >>= return . next
+        runStep (Lib3.ShowTable tableName f) = do
+          tableResult <- runExecuteIO $ Lib3.showTable tableName
+          return $ f tableResult
+
+        runStep (Lib3.ParseStatement input next) = do
+          let parsedStatement = case Lib2.parseStatement input of
+                Right stmt -> stmt
+                Left err -> error ("Parsing error: " ++ err)  -- Errors don't work
+          return $ next parsedStatement
 
 
+        runStep (Lib3.ExecuteStatement statement f) = do
+          executionResult <- runExecuteIO $ Lib3.executeStatement statement
+          case executionResult of
+            Right df -> return $ f (Right df)
+            Left errMsg -> return $ f (Left errMsg)
 
-
+        runStep (Lib3.LoadFile tableName next) = case tableName of
+          "employees" -> do
+            let jsonContent1 =  "[[ [\"id\", \"IntegerType\"], [\"name\", \"StringType\"], [\"surname\", \"StringType\"] ], \
+              \[ [{\"contents\":1,\"tag\":\"IntegerValue\"}, {\"contents\":\"Vi\",\"tag\":\"StringValue\"}, {\"contents\":\"Po\",\"tag\":\"StringValue\"}], \
+              \[{\"contents\":2,\"tag\":\"IntegerValue\"}, {\"contents\":\"Ed\",\"tag\":\"StringValue\"}, {\"contents\":\"Dl\",\"tag\":\"StringValue\"}], \
+              \[{\"contents\":3,\"tag\":\"IntegerValue\"}, {\"contents\":\"KN\",\"tag\":\"StringValue\"}, {\"contents\":\"KS\",\"tag\":\"StringValue\"}], \
+              \[{\"contents\":4,\"tag\":\"IntegerValue\"}, {\"contents\":\"DN\",\"tag\":\"StringValue\"}, {\"contents\":\"DS\",\"tag\":\"StringValue\"}], \
+              \[{\"contents\":5,\"tag\":\"IntegerValue\"}, {\"contents\":\"AN\",\"tag\":\"StringValue\"}, {\"contents\":\"AS\",\"tag\":\"StringValue\"}] ]]"
+            return (next $ Lib3.deserializeDataFrame jsonContent1)
+          "myDataFrame2" -> do
+            -- Handle the myDataFrame2 case
+            let jsonContent2 = "[[ [\"Name\", \"StringType\"], [\"Age\", \"IntegerType\"], [\"IsStudent\", \"BoolType\"] ], \
+              \[ [{\"contents\":\"Alice\",\"tag\":\"StringValue\"}, {\"contents\":25,\"tag\":\"IntegerValue\"}, {\"contents\":false,\"tag\":\"BoolValue\"}], \
+              \[{\"contents\":\"Bob\",\"tag\":\"StringValue\"}, {\"contents\":30,\"tag\":\"IntegerValue\"}, {\"contents\":true,\"tag\":\"BoolValue\"}], \
+              \[{\"contents\":\"Charlie\",\"tag\":\"StringValue\"}, {\"contents\":22,\"tag\":\"IntegerValue\"}, {\"contents\":true,\"tag\":\"BoolValue\"}], \
+              \[{\"contents\":\"artiom\",\"tag\":\"StringValue\"}, {\"contents\":20,\"tag\":\"IntegerValue\"}, {\"contents\":true,\"tag\":\"BoolValue\"}] ]]"
+            return (next $ Lib3.deserializeDataFrame jsonContent2)
+        
+        -- !!!we need to change this
+        runStep (Lib3.SaveTable (tableName, dataFrame) next) = do
+          --let filePath = "db/" ++ tableName ++ ".json"
+          let jsonStr = Lib3.serializeDataFrame dataFrame
+          -- Prelude.writeFile filePath jsonStr --wtf we do with this?
+          return (next ())

@@ -88,10 +88,15 @@ runExecuteIO (Free step) = do
                 Left err -> error ("Parsing error: " ++ err)  -- Errors don't work
           return $ next parsedStatement
 
-        runStep (Lib3.ExecuteStatement statement next) = do
-          let executionResult = Lib3.executeStatement statement
-          return $ next executionResult
+        -- runStep (Lib3.ExecuteStatement statement next) = do
+        --   let executionResult = Lib3.executeStatement statement
+        --   return $ next executionResult
 
+        runStep (Lib3.ExecuteStatement statement f) = do
+          executionResult <- runExecuteIO $ Lib3.executeStatement statement
+          case executionResult of
+            Right df -> return $ f (Right df)
+            Left errMsg -> return $ f (Left errMsg)
 
         -- OLD WAY
         -- runStep (Lib3.LoadFile tableName next) = do
@@ -117,6 +122,8 @@ runExecuteIO (Free step) = do
           let jsonStr = Lib3.serializeDataFrame dataFrame
           Prelude.writeFile filePath jsonStr
           return (next ())
+
+      
 
 
 
