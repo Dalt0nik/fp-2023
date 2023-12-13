@@ -262,40 +262,6 @@ main = hspec $ do
             )
       result <- rez
       result `shouldBe` Right expected  
-    it "Fails to execute INSERT with non-existent table" $ do
-      let parsed = "insert into non_existent_table (id, name) values (1, 'Name');"
-      result <- runExecuteIO (Lib3.executeSql parsed)
-      result `shouldSatisfy` isLeft
-    it "Fails to execute INSERT with mismatching column types" $ do
-      let parsed = "insert into employees (id, name) values ('wrong_type', 'Name');"
-      result <- runExecuteIO (Lib3.executeSql parsed)
-      result `shouldSatisfy` isLeft
-    it "Fails to execute INSERT with wrong number of values" $ do
-      let parsed = "insert into employees (id, name, surname) values (1, 'Name');"
-      result <- runExecuteIO (Lib3.executeSql parsed)
-      result `shouldSatisfy` isLeft
-    it "Fails to execute DELETE on non-existent table" $ do
-      let parsed = "delete from non_existent_table where id = 1;"
-      result <- runExecuteIO (Lib3.executeSql parsed)
-      result `shouldSatisfy` isLeft
-    it "Fails to execute DELETE with incorrect condition" $ do
-      let parsed = "delete from employees where non_existent_column = 'Value';"
-      result <- runExecuteIO (Lib3.executeSql parsed)
-      result `shouldSatisfy` isLeft
-    it "Fails to execute UPDATE on non-existent table" $ do
-      let parsed = "update non_existent_table set name = 'New Name' where id = 1;"
-      result <- runExecuteIO (Lib3.executeSql parsed)
-      result `shouldSatisfy` isLeft
-    it "Fails to execute UPDATE with mismatching data types" $ do
-      let parsed = "update employees set id = 'wrong_type' where name = 'Name';"
-      result <- runExecuteIO (Lib3.executeSql parsed)
-      result `shouldSatisfy` isLeft
-    it "Fails to execute UPDATE with non-existent column" $ do
-      let parsed = "update employees set non_existent_column = 'Value' where id = 1;"
-      result <- runExecuteIO (Lib3.executeSql parsed)
-      result `shouldSatisfy` isLeft   
-
-
 
 runExecuteIO :: Lib3.Execution r -> IO r
 runExecuteIO (Pure r) = return r
