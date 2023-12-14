@@ -331,28 +331,42 @@ deserializeDataFrame jsonStr =
 executeStatement :: Lib2.ParsedStatement -> Execution (Either ErrorMessage DataFrame)
 executeStatement (Lib2.SelectStatement columns tableNames maybeCondition) = do
 
+  --Check whether column tables match fetched tables
+
+  let columnSourceTables = map fst $ getSourcesFromColumns columns
+  if not (all (\sourceTable -> sourceTable `elem` tableNames) columnSourceTables)
+    then return $ Left "Invalid source table in columns"
+  else do
+
+    -- case maybeCondition of
+    --             Just condition ->
+    --                 let sourceTablesCondition = getSourcesFromCondition condition
+    --                 in if any (\sourceTable -> sourceTable `notElem` tableNames) sourceTablesCondition
+    --                     then return $ Left "Invalid source table in condition"
+    --                     else return ()
+    --             Nothing -> return ()
   --Fetch the specified tables
   --tableDataList <- mapM fetchTableFromDatabase (tableName1:rest)
-  tableDataList <- mapM loadFile tableNames
-  let tablesDF = rights tableDataList
-  let combinedList = zip tableNames tablesDF
-  
-  let isAggregationRequested = case columns of
-        Lib2.Aggregation _ -> True
-        _ -> False
+    tableDataList <- mapM loadFile tableNames
+    let tablesDF = rights tableDataList
+    let combinedList = zip tableNames tablesDF
+    
+    let isAggregationRequested = case columns of
+          Lib2.Aggregation _ -> True
+          _ -> False
 
-  -- Check if joining tables is requested
-  let numberOfTables = length tableNames
-  --if numberOfTables 
-  let isJoinRequested = case maybeCondition of
-        Just condition -> involvesMultipleTables condition
-        _ -> False
+    -- Check if joining tables is requested
+    let numberOfTables = length tableNames
+    --if numberOfTables 
+    let isJoinRequested = case maybeCondition of
+          Just condition -> involvesMultipleTables condition
+          _ -> False
 
-  -- Perform inner join if requested
-  if isJoinRequested then
-     if numberOfTables == 2 then executeJoin combinedList maybeCondition columns isAggregationRequested else return $ Left "only two tables can be joined"
-  else
-    if numberOfTables /= 1 then return (Left "only one table should be provided") else executeNoJoin combinedList maybeCondition columns isAggregationRequested
+    -- Perform inner join if requested
+    if isJoinRequested then
+      if numberOfTables == 2 then executeJoin combinedList maybeCondition columns isAggregationRequested else return $ Left "only two tables can be joined"
+    else
+      if numberOfTables /= 1 then return (Left "only one table should be provided") else executeNoJoin combinedList maybeCondition columns isAggregationRequested
 
 executeStatement Lib2.ShowTablesStatement = return $ Right $ DataFrame [Column "TABLE NAME" StringType] (map (\tableName -> [StringValue tableName]) (Lib2.showTables database))
 executeStatement (Lib2.ShowTableStatement tableName) =
@@ -360,6 +374,22 @@ executeStatement (Lib2.ShowTableStatement tableName) =
     Just (DataFrame columns _) -> return $ Right $ DataFrame [Column "COLUMN NAMES" StringType] (map (\col -> [StringValue (Lib2.extractColumnName col)]) columns)
     Nothing -> return $ Left (tableName ++ " not found")
 executeStatement _ = return $ Left "Not implemented: executeStatement"
+
+getSourcesFromColumns :: Lib2.Columns -> [(TableName, ColumnName)]
+getSourcesFromColumns columns =
+    case columns of
+        Lib2.All -> []
+        Lib2.SelectedColumns colNames -> map (\(tableName, columnName) -> (tableName, columnName)) colNames
+
+getSourcesFromCondition :: Lib2.Condition -> [TableName]
+getSourcesFromCondition (Lib2.Comparison initialAtomicStatement restAtomicStatements) =
+    nub $ extractSourcesFromWhereAtomic initialAtomicStatement ++ concatMap extractSourcesFromRest restAtomicStatements
+  where
+    extractSourcesFromWhereAtomic (Lib2.Where (tableName1, _) _ (Left (tableName2, _))) =
+        [tableName1, tableName2]
+    extractSourcesFromWhereAtomic (Lib2.Where (tableName, _) _ (Right _)) = [tableName]
+
+    extractSourcesFromRest (_, whereAtomicStatement) = extractSourcesFromWhereAtomic whereAtomicStatement
 
 -- -- Function to execute aggregation functions
 executeAggregationFunction :: Lib2.AggregateFunction -> Maybe Int -> [Row] -> Value
