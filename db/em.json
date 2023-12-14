@@ -1,10 +1,10 @@
 [
-    [["id", "IntegerType"], ["name", "StringType"], ["surname", "StringType"]],
-    [
-      [{"contents": 1, "tag": "IntegerValue"}, {"contents": "Vi", "tag": "StringValue"}, {"contents": "Po", "tag": "StringValue"}],
-      [{"contents": 2, "tag": "IntegerValue"}, {"contents": "Ed", "tag": "StringValue"}, {"contents": "Dl", "tag": "StringValue"}],
-      [{"contents": 3, "tag": "IntegerValue"}, {"contents": "KN", "tag": "StringValue"}, {"contents": "KS", "tag": "StringValue"}],
-      [{"contents": 4, "tag": "IntegerValue"}, {"contents": "DN", "tag": "StringValue"}, {"contents": "DS", "tag": "StringValue"}],
-      [{"contents": 5, "tag": "IntegerValue"}, {"contents": "AN", "tag": "StringValue"}, {"contents": "AS", "tag": "StringValue"}]
-    ]
+  [["name", "StringType"], ["id", "IntegerType"], ["surname", "StringType"]],
+  [
+    [{"contents": "Vi", "tag": "StringValue"}, {"contents": 1, "tag": "IntegerValue"}, {"contents": "Po", "tag": "StringValue"}],
+    [{"contents": "Ed", "tag": "StringValue"}, {"contents": 2, "tag": "IntegerValue"}, {"contents": "Dl", "tag": "StringValue"}],
+    [{"contents": "KN", "tag": "StringValue"}, {"contents": 3, "tag": "IntegerValue"}, {"contents": "KS", "tag": "StringValue"}],
+    [{"contents": "DN", "tag": "StringValue"}, {"contents": 4, "tag": "IntegerValue"}, {"contents": "DS", "tag": "StringValue"}],
+    [{"contents": "AN", "tag": "StringValue"}, {"contents": 5, "tag": "IntegerValue"}, {"contents": "AS", "tag": "StringValue"}]
   ]
+]
