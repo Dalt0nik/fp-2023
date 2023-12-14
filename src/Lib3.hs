@@ -586,7 +586,7 @@ innerJoin selectedColumnsTable1Indeces' selectedColumnsTable2Indeces' joinColumn
             Just columns1 -> columns1 ) row1
         selectedValues2 = getSelectedValues (case maybeIntListResult2 of 
           Just columns2 -> columns2 ) row2
-      in (selectedValues1++ selectedValues2)
+      in (selectedValues1 ++ selectedValues2)
 
     getSelectedValues :: [Int] -> Row -> Row
     getSelectedValues selectedColumnsIndices originalRow =
