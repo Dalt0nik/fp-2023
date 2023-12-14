@@ -520,7 +520,19 @@ executeJoin tableDataList maybeCondition columns isAggregationRequested = do
     let indicesTable1 = map (\col -> findColumnIndex selectedColumnsTable1 (Lib2.extractColumnName col)) filteredColumnsTable1
     let indicesTable2 = map (\col -> findColumnIndex selectedColumnsTable2 (Lib2.extractColumnName col)) filteredColumnsTable2
 
-    let joinedRows = innerJoin indicesTable1 indicesTable2 joinColumnIndexTable1 joinColumnIndexTable2 table1 table2 maybeCondition
+    let indecesOfColumns = case columns of
+          Lib2.All -> indicesTable1 ++ map (fmap (+ length indicesTable1)) indicesTable2
+          Lib2.SelectedColumns _ -> map (\(tableName, col) -> case tableName of
+                              t | t == table1Name -> findColumnIndex selectedColumnsTable1 col
+                                | t == table2Name -> Just $ fromMaybe (error "Column not found") (fmap (+ length selectedColumnsTable1) (findColumnIndex selectedColumnsTable2 col))
+                                | otherwise -> error ("Unknown table name: " ++ t)
+                            ) $ case columns of 
+                                  Lib2.SelectedColumns col -> col
+--traceShowM ("Indices of columns: " ++ show indecesOfColumns)
+
+    let joinedRows = innerJoin indecesOfColumns joinColumnIndexTable1 joinColumnIndexTable2 table1 table2 maybeCondition
+
+    --let joinedRows = innerJoin indicesTable1 indicesTable2 joinColumnIndexTable1 joinColumnIndexTable2 table1 table2 maybeCondition
 
     -- Create a new DataFrame with selected columns and joined rows
     --let resultDataFrame = DataFrame resultColumns joinedRows
@@ -532,12 +544,12 @@ executeJoin tableDataList maybeCondition columns isAggregationRequested = do
         else return $ Right resultDataFrame
 
 -- Function to perform inner join
-innerJoin :: [Maybe Int] -> [Maybe Int] -> Int -> Int -> DataFrame -> DataFrame -> Maybe Lib2.Condition -> [Row]
-innerJoin selectedColumnsTable1Indeces' selectedColumnsTable2Indeces' joinColumnIndexTable1 joinColumnIndexTable2 table1 table2 maybeCondition =
+innerJoin :: [Maybe Int] -> Int -> Int -> DataFrame -> DataFrame -> Maybe Lib2.Condition -> [Row]
+innerJoin indecesOfColumns joinColumnIndexTable1 joinColumnIndexTable2 table1 table2 maybeCondition =
   let rowsTable1 = rowsWithIndixes table1
       rowsTable2 = rowsWithIndixes table2
       matchingRows = filter (\(index1, row1, index2, row2) -> evaluateJoinCondition (index1, row1) (index2, row2)) (joinedRows rowsTable1 rowsTable2) -- leaves only needed columns in a row
-  in map (\(_, row1, _, row2) -> createJoinedRow selectedColumnsTable1Indeces' selectedColumnsTable2Indeces' row1 row2) matchingRows
+  in map (\(_, row1, _, row2) -> createJoinedRow indecesOfColumns (row1++row2)) matchingRows
   where
     rowsWithIndixes :: DataFrame -> [(Int, Row)]
     rowsWithIndixes (DataFrame _ rows) = zip [0..] rows
@@ -569,30 +581,16 @@ innerJoin selectedColumnsTable1Indeces' selectedColumnsTable2Indeces' joinColumn
             case valueEither of
               Left (tableName2, columnName2) -> value1 == value2
         _ -> error "Unsupported operator for join condition"
-    
-      where
-        findColumnIndex :: [Column] -> ColumnName -> Int
-        findColumnIndex columns colName =
-          case elemIndex colName (map Lib2.extractColumnName columns) of
-            Just index -> index
-            Nothing -> error $ "Column not found: " ++ colName
 
-    createJoinedRow :: [Maybe Int] -> [Maybe Int] -> Row -> Row -> Row
-    createJoinedRow selectedColumnsTable1Indeces selectedColumnsTable2Indeces row1 row2 =
+    createJoinedRow :: [Maybe Int] -> Row -> Row
+    createJoinedRow indecesOfColumns rows =
       let
-        maybeIntListResult1 = sequenceA selectedColumnsTable1Indeces
-        maybeIntListResult2 = sequenceA selectedColumnsTable2Indeces
-        selectedValues1 = getSelectedValues (case maybeIntListResult1 of 
-            Just columns1 -> columns1 ) row1
-        selectedValues2 = getSelectedValues (case maybeIntListResult2 of 
-          Just columns2 -> columns2 ) row2
-      in (selectedValues1 ++ selectedValues2)
-
-    getSelectedValues :: [Int] -> Row -> Row
-    getSelectedValues selectedColumnsIndices originalRow =
-      map (\colIndex ->
-              extractValueAtIndex colIndex originalRow
-          ) selectedColumnsIndices
+        selectedValues = map (\index ->
+          case index of
+            Just i -> rows !! i
+            Nothing -> NullValue
+            ) indecesOfColumns
+      in selectedValues
 
 -- Function to execute selection without join
 executeNoJoin :: [(TableName, DataFrame)] -> Maybe Lib2.Condition -> Lib2.Columns -> Bool -> Execution (Either ErrorMessage DataFrame)
