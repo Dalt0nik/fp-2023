@@ -337,16 +337,6 @@ executeStatement (Lib2.SelectStatement columns tableNames maybeCondition) = do
   if not (all (\sourceTable -> sourceTable `elem` tableNames) columnSourceTables)
     then return $ Left "Invalid source table in columns"
   else do
-
-    -- case maybeCondition of
-    --             Just condition ->
-    --                 let sourceTablesCondition = getSourcesFromCondition condition
-    --                 in if any (\sourceTable -> sourceTable `notElem` tableNames) sourceTablesCondition
-    --                     then return $ Left "Invalid source table in condition"
-    --                     else return ()
-    --             Nothing -> return ()
-  --Fetch the specified tables
-  --tableDataList <- mapM fetchTableFromDatabase (tableName1:rest)
     tableDataList <- mapM loadFile tableNames
     let tablesDF = rights tableDataList
     let combinedList = zip tableNames tablesDF
@@ -380,16 +370,6 @@ getSourcesFromColumns columns =
     case columns of
         Lib2.All -> []
         Lib2.SelectedColumns colNames -> map (\(tableName, columnName) -> (tableName, columnName)) colNames
-
-getSourcesFromCondition :: Lib2.Condition -> [TableName]
-getSourcesFromCondition (Lib2.Comparison initialAtomicStatement restAtomicStatements) =
-    nub $ extractSourcesFromWhereAtomic initialAtomicStatement ++ concatMap extractSourcesFromRest restAtomicStatements
-  where
-    extractSourcesFromWhereAtomic (Lib2.Where (tableName1, _) _ (Left (tableName2, _))) =
-        [tableName1, tableName2]
-    extractSourcesFromWhereAtomic (Lib2.Where (tableName, _) _ (Right _)) = [tableName]
-
-    extractSourcesFromRest (_, whereAtomicStatement) = extractSourcesFromWhereAtomic whereAtomicStatement
 
 -- -- Function to execute aggregation functions
 executeAggregationFunction :: Lib2.AggregateFunction -> Maybe Int -> [Row] -> Value
