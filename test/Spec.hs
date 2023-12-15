@@ -229,6 +229,32 @@ main = hspec $ do
             )
       result <- rez
       result `shouldBe` Right expected
+    it "Throws an error for insert query with non existing columns" $ do
+      let (parsed, rez, expected) =
+            ( "insert into employees (notExistingColumn, name, surname) values (69, 'a','b');",
+              runExecuteIO (Lib3.executeSql parsed),
+              Left "Columns do not exist in the DataFrame"
+            )
+      result <- rez
+      case (expected, result) of
+        (Left expectedErr, Left actualErr) -> actualErr `shouldBe` expectedErr
+        (Right _, Left _) -> expectationFailure "Expected Left with an error message, but got Right"
+        (Left _, Right _) -> expectationFailure "Expected Right, but got Left with an error message"
+        (Right _, Right _) -> expectationFailure "Expected Left with an error message, but got Right"
+    it "Throws an error for insert query if values in the query mismatch column types" $ do
+      let (parsed, rez, expected) =
+            ( "insert into employees (id, name, surname) values ('69', 69,'b');",
+              runExecuteIO (Lib3.executeSql parsed),
+              Left "Invalid values for columns"
+            )
+      result <- rez
+      case (expected, result) of
+        (Left expectedErr, Left actualErr) -> actualErr `shouldBe` expectedErr
+        (Right _, Left _) -> expectationFailure "Expected Left with an error message, but got Right"
+        (Left _, Right _) -> expectationFailure "Expected Right, but got Left with an error message"
+        (Right _, Right _) -> expectationFailure "Expected Left with an error message, but got Right"   
+
+
     it "Executes updates" $ do
       let (parsed, rez, expected) =
             ( "update employees set name = 'ar' , id = 100 where employees.surname <> 'Dl' ;",
