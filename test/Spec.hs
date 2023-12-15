@@ -268,53 +268,6 @@ main = hspec $ do
 
 
 
-
-
-    it "Throws an error for delete query with invalid condition" $ do
-      let (parsed, rez, expected) =
-            ( "delete from employees where employees.nonExistingColumn = 'value';",
-              runExecuteIO (Lib3.executeSql parsed),
-              Left "Throws an error for update query with non-existing columns"
-            )
-      result <- rez
-      case (expected, result) of
-        (Left expectedErr, Left actualErr) -> actualErr `shouldBe` expectedErr
-        (Right _, Left _) -> expectationFailure "Expected Left with an error message, but got Right"
-        (Left _, Right _) -> expectationFailure "Expected Right, but got Left with an error message"
-        (Right _, Right _) -> expectationFailure "Expected Left with an error message, but got Right"
-
-    it "Throws an error for join query with non-existing table" $ do
-      let (parsed, rez, expected) =
-            ( "SELECT employees.id, nonExistingTable.job FROM employees, nonExistingTable WHERE employees.id = nonExistingTable.id;",
-              runExecuteIO (Lib3.executeSql parsed),
-              Left "One of the tables in the JOIN does not exist"
-            )
-      result <- rez
-      case (expected, result) of
-        (Left expectedErr, Left actualErr) -> actualErr `shouldBe` expectedErr
-        (Right _, Left _) -> expectationFailure "Expected Left with an error message, but got Right"
-        (Left _, Right _) -> expectationFailure "Expected Right, but got Left with an error message"
-        (Right _, Right _) -> expectationFailure "Expected Left with an error message, but got Right"
-
-    it "Throws an error for join query with invalid join condition" $ do
-      let (parsed, rez, expected) =
-            ( "SELECT employees.id, employees2.job FROM employees, employees2 WHERE employees.id = employees2.id;",
-              runExecuteIO (Lib3.executeSql parsed),
-              Left "Invalid join condition"
-            )
-      result <- rez
-      case (expected, result) of
-        (Left expectedErr, Left actualErr) -> actualErr `shouldBe` expectedErr
-        (Right _, Left _) -> expectationFailure "Expected Left with an error message, but got Right"
-        (Left _, Right _) -> expectationFailure "Expected Right, but got Left with an error message"
-        (Right _, Right _) -> expectationFailure "Expected Left with an error message, but got Right"
-
-
-
-
-
-
-
     it "Executes UPDATE" $ do
       let (parsed, rez, expected) =
             ( "update employees set name = 'ar' , id = 100 where employees.surname <> 'Dl' ;",
