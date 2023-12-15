@@ -253,9 +253,69 @@ main = hspec $ do
         (Right _, Left _) -> expectationFailure "Expected Left with an error message, but got Right"
         (Left _, Right _) -> expectationFailure "Expected Right, but got Left with an error message"
         (Right _, Right _) -> expectationFailure "Expected Left with an error message, but got Right"   
+    it "Throws an error for update query with non-existing columns" $ do
+      let (parsed, rez, expected) =
+            ( "update employees set nonExistingColumn = 'newValue' where employees.name = 'Vi';",
+              runExecuteIO (Lib3.executeSql parsed),
+              Left "Columns to update do not exist in the DataFrame"
+            )
+      result <- rez
+      case (expected, result) of
+        (Left expectedErr, Left actualErr) -> actualErr `shouldBe` expectedErr
+        (Right _, Left _) -> expectationFailure "Expected Left with an error message, but got Right"
+        (Left _, Right _) -> expectationFailure "Expected Right, but got Left with an error message"
+        (Right _, Right _) -> expectationFailure "Expected Left with an error message, but got Right"
 
 
-    it "Executes updates" $ do
+
+
+
+    it "Throws an error for delete query with invalid condition" $ do
+      let (parsed, rez, expected) =
+            ( "delete from employees where employees.nonExistingColumn = 'value';",
+              runExecuteIO (Lib3.executeSql parsed),
+              Left "Throws an error for update query with non-existing columns"
+            )
+      result <- rez
+      case (expected, result) of
+        (Left expectedErr, Left actualErr) -> actualErr `shouldBe` expectedErr
+        (Right _, Left _) -> expectationFailure "Expected Left with an error message, but got Right"
+        (Left _, Right _) -> expectationFailure "Expected Right, but got Left with an error message"
+        (Right _, Right _) -> expectationFailure "Expected Left with an error message, but got Right"
+
+    it "Throws an error for join query with non-existing table" $ do
+      let (parsed, rez, expected) =
+            ( "SELECT employees.id, nonExistingTable.job FROM employees, nonExistingTable WHERE employees.id = nonExistingTable.id;",
+              runExecuteIO (Lib3.executeSql parsed),
+              Left "One of the tables in the JOIN does not exist"
+            )
+      result <- rez
+      case (expected, result) of
+        (Left expectedErr, Left actualErr) -> actualErr `shouldBe` expectedErr
+        (Right _, Left _) -> expectationFailure "Expected Left with an error message, but got Right"
+        (Left _, Right _) -> expectationFailure "Expected Right, but got Left with an error message"
+        (Right _, Right _) -> expectationFailure "Expected Left with an error message, but got Right"
+
+    it "Throws an error for join query with invalid join condition" $ do
+      let (parsed, rez, expected) =
+            ( "SELECT employees.id, employees2.job FROM employees, employees2 WHERE employees.id = employees2.id;",
+              runExecuteIO (Lib3.executeSql parsed),
+              Left "Invalid join condition"
+            )
+      result <- rez
+      case (expected, result) of
+        (Left expectedErr, Left actualErr) -> actualErr `shouldBe` expectedErr
+        (Right _, Left _) -> expectationFailure "Expected Left with an error message, but got Right"
+        (Left _, Right _) -> expectationFailure "Expected Right, but got Left with an error message"
+        (Right _, Right _) -> expectationFailure "Expected Left with an error message, but got Right"
+
+
+
+
+
+
+
+    it "Executes UPDATE" $ do
       let (parsed, rez, expected) =
             ( "update employees set name = 'ar' , id = 100 where employees.surname <> 'Dl' ;",
               runExecuteIO (Lib3.executeSql parsed),
@@ -273,7 +333,7 @@ main = hspec $ do
             )
       result <- rez
       result `shouldBe` Right expected
-    it "Executes deletes" $ do
+    it "Executes DELETE" $ do
       let (parsed, rez, expected) =
             ( "delete from employees where employees.surname <> 'Dl';;",
               runExecuteIO (Lib3.executeSql parsed),
@@ -287,7 +347,26 @@ main = hspec $ do
                 ]
             )
       result <- rez
-      result `shouldBe` Right expected  
+      result `shouldBe` Right expected
+    it "Executes JOIN" $ do
+      let (parsed, rez, expected) =
+            ( "SELECT employees.id, employees2.Age FROM employees, employees2 WHERE employees.id = employees2.id;",
+              runExecuteIO (Lib3.executeSql parsed),
+              Right $ DataFrame
+                [ 
+                  Column "id" IntegerType,
+                  Column "Age" IntegerType
+                ] 
+                [ 
+                  [IntegerValue 1, IntegerValue 25],
+                  [IntegerValue 2, IntegerValue 30],
+                  [IntegerValue 3, IntegerValue 22],
+                  [IntegerValue 4, IntegerValue 20]
+                ]
+            )
+      result <- rez
+      result `shouldBe` expected
+
 
 runExecuteIO :: Lib3.Execution r -> IO r
 runExecuteIO (Pure r) = return r
@@ -324,15 +403,15 @@ runExecuteIO (Free step) = do
               \[{\"contents\":4,\"tag\":\"IntegerValue\"}, {\"contents\":\"DN\",\"tag\":\"StringValue\"}, {\"contents\":\"DS\",\"tag\":\"StringValue\"}], \
               \[{\"contents\":5,\"tag\":\"IntegerValue\"}, {\"contents\":\"AN\",\"tag\":\"StringValue\"}, {\"contents\":\"AS\",\"tag\":\"StringValue\"}] ]]"
             return (next $ Lib3.deserializeDataFrame jsonContent1)
-          "myDataFrame2" -> do
+          "employees2" -> do
             -- Handle the myDataFrame2 case
-            let jsonContent2 = "[[ [\"Name\", \"StringType\"], [\"Age\", \"IntegerType\"], [\"IsStudent\", \"BoolType\"] ], \
-              \[ [{\"contents\":\"Alice\",\"tag\":\"StringValue\"}, {\"contents\":25,\"tag\":\"IntegerValue\"}, {\"contents\":false,\"tag\":\"BoolValue\"}], \
-              \[{\"contents\":\"Bob\",\"tag\":\"StringValue\"}, {\"contents\":30,\"tag\":\"IntegerValue\"}, {\"contents\":true,\"tag\":\"BoolValue\"}], \
-              \[{\"contents\":\"Charlie\",\"tag\":\"StringValue\"}, {\"contents\":22,\"tag\":\"IntegerValue\"}, {\"contents\":true,\"tag\":\"BoolValue\"}], \
-              \[{\"contents\":\"artiom\",\"tag\":\"StringValue\"}, {\"contents\":20,\"tag\":\"IntegerValue\"}, {\"contents\":true,\"tag\":\"BoolValue\"}] ]]"
-            return (next $ Lib3.deserializeDataFrame jsonContent2)
-        
+            let jsonContent2 = "[[ [\"id\", \"IntegerType\"], [\"Name\", \"StringType\"], [\"Age\", \"IntegerType\"], [\"IsStudent\", \"BoolType\"] ], \
+              \[ [{\"contents\":1,\"tag\":\"IntegerValue\"}, {\"contents\":\"Alice\",\"tag\":\"StringValue\"}, {\"contents\":25,\"tag\":\"IntegerValue\"}, {\"contents\":false,\"tag\":\"BoolValue\"}], \
+              \[{\"contents\":2,\"tag\":\"IntegerValue\"}, {\"contents\":\"Bob\",\"tag\":\"StringValue\"}, {\"contents\":30,\"tag\":\"IntegerValue\"}, {\"contents\":true,\"tag\":\"BoolValue\"}], \
+              \[{\"contents\":3,\"tag\":\"IntegerValue\"}, {\"contents\":\"Charlie\",\"tag\":\"StringValue\"}, {\"contents\":22,\"tag\":\"IntegerValue\"}, {\"contents\":true,\"tag\":\"BoolValue\"}], \
+              \[{\"contents\":4,\"tag\":\"IntegerValue\"}, {\"contents\":\"artiom\",\"tag\":\"StringValue\"}, {\"contents\":20,\"tag\":\"IntegerValue\"}, {\"contents\":true,\"tag\":\"BoolValue\"}] ]]"
+
+            return (next $ Lib3.deserializeDataFrame jsonContent2)   
         -- !!!we need to change this
         runStep (Lib3.SaveTable (tableName, dataFrame) next) = do
           --let filePath = "db/" ++ tableName ++ ".json"
