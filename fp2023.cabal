@@ -51,6 +51,7 @@ library
   build-depends:
       aeson
     , base >=4.7 && <5
+    , directory
     , bytestring
     , free
     , time
@@ -69,6 +70,7 @@ executable fp2023-manipulate
   build-depends:
       aeson
     , base >=4.7 && <5
+    , directory
     , bytestring
     , extra
     , fp2023
