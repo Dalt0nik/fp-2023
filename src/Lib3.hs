@@ -271,8 +271,33 @@ executeSql sql = do
     _ | "delete" `isPrefixOf` sql' -> do
         parsedStatement <- parseStatement sql
         executeDelete parsedStatement
+    _ | "showtable" `isPrefixOf` sql' -> do
+        let restOfSql = drop (9) sql'
+        let tableName = takeWhile (/= ';') restOfSql
+        executeShowTable tableName        
     _ -> do
       return $ Left "command not found"
+
+executeShowTable :: TableName -> Execution (Either ErrorMessage DataFrame)
+executeShowTable tableName = do
+  -- Load the DataFrame with the given table name
+  loadedDF <- loadFile tableName
+
+  -- Extract column names and types from the loaded DataFrame
+  let columns = dataframeColumns loadedDF
+  let rows = map (\(Column name colType) -> [StringValue name, StringValue (show colType)]) columns
+
+  -- Create a new DataFrame with two columns: "Column Name" and "Column Type"
+  let columnNameColumn = Column "Column Name" StringType
+  let columnTypeColumn = Column "Column Type" StringType
+  let resultDataFrame = DataFrame [columnNameColumn, columnTypeColumn] rows
+
+  return $ Right resultDataFrame
+
+
+
+
+  
 
 
 ---------SERIALISATION----DESERIALIZATION------------------
