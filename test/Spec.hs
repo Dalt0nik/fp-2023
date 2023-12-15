@@ -253,18 +253,7 @@ main = hspec $ do
         (Right _, Left _) -> expectationFailure "Expected Left with an error message, but got Right"
         (Left _, Right _) -> expectationFailure "Expected Right, but got Left with an error message"
         (Right _, Right _) -> expectationFailure "Expected Left with an error message, but got Right"   
-    it "Throws an error for update query with non-existing columns" $ do
-      let (parsed, rez, expected) =
-            ( "update employees set nonExistingColumn = 'newValue' where employees.name = 'Vi';",
-              runExecuteIO (Lib3.executeSql parsed),
-              Left "Columns to update do not exist in the DataFrame"
-            )
-      result <- rez
-      case (expected, result) of
-        (Left expectedErr, Left actualErr) -> actualErr `shouldBe` expectedErr
-        (Right _, Left _) -> expectationFailure "Expected Left with an error message, but got Right"
-        (Left _, Right _) -> expectationFailure "Expected Right, but got Left with an error message"
-        (Right _, Right _) -> expectationFailure "Expected Left with an error message, but got Right"
+
 
 
 
@@ -286,6 +275,32 @@ main = hspec $ do
             )
       result <- rez
       result `shouldBe` Right expected
+    it "Throws an error for update query with non-existing columns" $ do
+      let (parsed, rez, expected) =
+            ( "update employees set nonExistingColumn = 'newValue' where employees.name = 'Vi';",
+              runExecuteIO (Lib3.executeSql parsed),
+              Left "Columns to update do not exist in the DataFrame"
+            )
+      result <- rez
+      case (expected, result) of
+        (Left expectedErr, Left actualErr) -> actualErr `shouldBe` expectedErr
+        (Right _, Left _) -> expectationFailure "Expected Left with an error message, but got Right"
+        (Left _, Right _) -> expectationFailure "Expected Right, but got Left with an error message"
+        (Right _, Right _) -> expectationFailure "Expected Left with an error message, but got Right"
+
+    it "Throws an error for update query if values in the query mismatch column types" $ do
+      let (parsed, rez, expected) =
+            ( "update employees set name = 1234 , id = 'a' where employees.name = 'Vi';",
+              runExecuteIO (Lib3.executeSql parsed),
+              Left "Invalid values for columns"
+            )
+      result <- rez
+      case (expected, result) of
+        (Left expectedErr, Left actualErr) -> actualErr `shouldBe` expectedErr
+        (Right _, Left _) -> expectationFailure "Expected Left with an error message, but got Right"
+        (Left _, Right _) -> expectationFailure "Expected Right, but got Left with an error message"
+        (Right _, Right _) -> expectationFailure "Expected Left with an error message, but got Right"       
+
     it "Executes DELETE" $ do
       let (parsed, rez, expected) =
             ( "delete from employees where employees.surname <> 'Dl';;",
