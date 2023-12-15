@@ -288,6 +288,23 @@ main = hspec $ do
             )
       result <- rez
       result `shouldBe` Right expected  
+    it "Executes SHOW TABLE query" $ do
+      let (parsed, rez, expected) =
+            ( "show table employees;",
+              runExecuteIO (Lib3.executeSql parsed),
+              DataFrame
+                [
+                  Column "Column Name" StringType,
+                  Column "Column Type" StringType
+                ]
+                [
+                  [StringValue "id", StringValue "IntegerType"],
+                  [StringValue "name", StringValue "StringType"],
+                  [StringValue "surname", StringValue "StringType"]
+                ]
+            )
+      result <- rez
+      result `shouldBe` Right expected            
 
 runExecuteIO :: Lib3.Execution r -> IO r
 runExecuteIO (Pure r) = return r
