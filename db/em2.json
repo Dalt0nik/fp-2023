@@ -1,0 +1,10 @@
+[
+    [["name", "StringType"], ["job", "StringType"]],
+    [
+      [{"contents": "Vi", "tag": "StringValue"}, {"contents": "job1", "tag": "StringValue"}],
+      [{"contents": "Ed", "tag": "StringValue"}, {"contents": "job2", "tag": "StringValue"}],
+      [{"contents": "KN", "tag": "StringValue"}, {"contents": "job3", "tag": "StringValue"}],
+      [{"contents": "DN", "tag": "StringValue"}, {"contents": "job4", "tag": "StringValue"}],
+      [{"contents": "AN", "tag": "StringValue"}, {"contents": "job5", "tag": "StringValue"}]
+    ]
+  ]

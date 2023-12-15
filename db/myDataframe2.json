@@ -1,1 +1,5 @@
-[[ ["Name", "StringType"], ["Age", "IntegerType"], ["IsStudent", "BoolType"] ], [ [{"contents":"Alice","tag":"StringValue"}, {"contents":25,"tag":"IntegerValue"}, {"contents":false,"tag":"BoolValue"}], [{"contents":"Bob","tag":"StringValue"}, {"contents":30,"tag":"IntegerValue"}, {"contents":true,"tag":"BoolValue"}], [{"contents":"Charlie","tag":"StringValue"}, {"contents":22,"tag":"IntegerValue"}, {"contents":true,"tag":"BoolValue"}], [{"contents":"artiom","tag":"StringValue"}, {"contents":20,"tag":"IntegerValue"}, {"contents":true,"tag":"BoolValue"}] ]]
+[[ ["Name", "StringType"], ["Age", "IntegerType"], ["IsStudent", "BoolType"] ],
+[ [{"contents":"Alice","tag":"StringValue"}, {"contents":25,"tag":"IntegerValue"}, {"contents":false,"tag":"BoolValue"}],
+[{"contents":"Bob","tag":"StringValue"}, {"contents":30,"tag":"IntegerValue"}, {"contents":true,"tag":"BoolValue"}],
+[{"contents":"Charlie","tag":"StringValue"}, {"contents":22,"tag":"IntegerValue"}, {"contents":true,"tag":"BoolValue"}],
+[{"contents":"artiom","tag":"StringValue"}, {"contents":20,"tag":"IntegerValue"}, {"contents":true,"tag":"BoolValue"}] ]]

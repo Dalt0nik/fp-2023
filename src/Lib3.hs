@@ -14,8 +14,6 @@ module Lib3
     ExecutionAlgebra(..),
     showTable,
     executeInsert, --i think we don't need to export this
-    --save,
-    --load,
     deserializeDataFrame,
     serializeDataFrame,
     executeStatement
@@ -69,9 +67,6 @@ getCurrentTime = liftF $ GetCurrentTime id
 
 parseStatement :: String -> Execution Lib2.ParsedStatement
 parseStatement input = liftF $ ParseStatement input id
-
-executeStatementFree :: Lib2.ParsedStatement -> Execution (Either ErrorMessage DataFrame)
-executeStatementFree statement = liftF $ ExecuteStatement statement id
 
 showTable :: TableName -> Execution (Either ErrorMessage DataFrame)
 showTable tableName = case fetchTableFromDatabase tableName of
@@ -267,7 +262,6 @@ executeSql sql = do
     _ | "select" `isPrefixOf` sql' -> do
         parsedStatement <- parseStatement sql
         executeStatement parsedStatement
-        --executeStatementFree parsedStatement
     _ | "insert" `isPrefixOf` sql' -> do
         parsedStatement <- parseStatement sql
         executeInsert parsedStatement
@@ -337,28 +331,32 @@ deserializeDataFrame jsonStr =
 executeStatement :: Lib2.ParsedStatement -> Execution (Either ErrorMessage DataFrame)
 executeStatement (Lib2.SelectStatement columns tableNames maybeCondition) = do
 
-  --Fetch the specified tables
-  --tableDataList <- mapM fetchTableFromDatabase (tableName1:rest)
-  tableDataList <- mapM loadFile tableNames
-  let tablesDF = rights tableDataList
-  let combinedList = zip tableNames tablesDF
-  
-  let isAggregationRequested = case columns of
-        Lib2.Aggregation _ -> True
-        _ -> False
+  --Check whether column tables match fetched tables
 
-  -- Check if joining tables is requested
-  let numberOfTables = length tableNames
-  --if numberOfTables 
-  let isJoinRequested = case maybeCondition of
-        Just condition -> involvesMultipleTables condition
-        _ -> False
+  let columnSourceTables = map fst $ getSourcesFromColumns columns
+  if not (all (\sourceTable -> sourceTable `elem` tableNames) columnSourceTables)
+    then return $ Left "Invalid source table in columns"
+  else do
+    tableDataList <- mapM loadFile tableNames
+    let tablesDF = rights tableDataList
+    let combinedList = zip tableNames tablesDF
+    
+    let isAggregationRequested = case columns of
+          Lib2.Aggregation _ -> True
+          _ -> False
 
-  -- Perform inner join if requested
-  if isJoinRequested then
-     if numberOfTables == 2 then executeJoin combinedList maybeCondition columns isAggregationRequested else return $ Left "only two tables can be joined"
-  else
-    if numberOfTables /= 1 then return (Left "only one table should be provided") else executeNoJoin combinedList maybeCondition columns isAggregationRequested
+    -- Check if joining tables is requested
+    let numberOfTables = length tableNames
+    --if numberOfTables 
+    let isJoinRequested = case maybeCondition of
+          Just condition -> involvesMultipleTables condition
+          _ -> False
+
+    -- Perform inner join if requested
+    if isJoinRequested then
+      if numberOfTables == 2 then executeJoin combinedList maybeCondition columns isAggregationRequested else return $ Left "only two tables can be joined"
+    else
+      if numberOfTables /= 1 then return (Left "only one table should be provided") else executeNoJoin combinedList maybeCondition columns isAggregationRequested
 
 executeStatement Lib2.ShowTablesStatement = return $ Right $ DataFrame [Column "TABLE NAME" StringType] (map (\tableName -> [StringValue tableName]) (Lib2.showTables database))
 executeStatement (Lib2.ShowTableStatement tableName) =
@@ -366,6 +364,12 @@ executeStatement (Lib2.ShowTableStatement tableName) =
     Just (DataFrame columns _) -> return $ Right $ DataFrame [Column "COLUMN NAMES" StringType] (map (\col -> [StringValue (Lib2.extractColumnName col)]) columns)
     Nothing -> return $ Left (tableName ++ " not found")
 executeStatement _ = return $ Left "Not implemented: executeStatement"
+
+getSourcesFromColumns :: Lib2.Columns -> [(TableName, ColumnName)]
+getSourcesFromColumns columns =
+    case columns of
+        Lib2.All -> []
+        Lib2.SelectedColumns colNames -> map (\(tableName, columnName) -> (tableName, columnName)) colNames
 
 -- -- Function to execute aggregation functions
 executeAggregationFunction :: Lib2.AggregateFunction -> Maybe Int -> [Row] -> Value
@@ -414,6 +418,8 @@ fetchTableFromDatabase tableName = case lookup (map toLower tableName) database 
 getColumns :: DataFrame -> [Column]
 getColumns (DataFrame columns _) = columns
 
+getColumnsWithTableName :: TableName -> DataFrame -> [(TableName, Column)]
+getColumnsWithTableName tableName (DataFrame columns _) = map (\col -> (tableName, col)) columns
 
 findColumnIndex :: [Column] -> ColumnName -> Maybe Int
 findColumnIndex columns columnName = elemIndex columnName (map Lib2.extractColumnName columns)
@@ -477,9 +483,9 @@ executeJoin tableDataList maybeCondition columns isAggregationRequested = do
     -- Ensure join tables have the same column
     let (joinColumnNameTable1, joinColumnNameTable2) = case maybeCondition of
             Just (Lib2.Comparison (Lib2.Where (tableName1, columnName1) _ (Left (tableName2, columnName2))) _) ->
-                if tableName1 == table1Name
-                    then (columnName1, columnName2)
-                    else (columnName2, columnName1)
+              if tableName1 == table1Name then (columnName1, columnName2)
+              else if tableName1 == table2Name then (columnName2, columnName1)
+              else error "Invalid join condition"
             Just _ -> error "Invalid join condition"
             Nothing -> error "Invalid join condition"
 
@@ -487,14 +493,8 @@ executeJoin tableDataList maybeCondition columns isAggregationRequested = do
     let selectedColumnsTable1 = getColumns table1
     let selectedColumnsTable2 = getColumns table2
 
-    -- Ensure the join columns exist in their respective tables
-    -- joinColumnIndexTable1 <- case findColumnIndex selectedColumnsTable1 joinColumnNameTable1 of
-    --   Just index -> return $ Right index
-    --   Nothing -> return $ Left "Column not found in table1"
-
-    -- joinColumnIndexTable2 <- case findColumnIndex selectedColumnsTable2 joinColumnNameTable2 of
-    --   Just index -> return $ Right index
-    --   Nothing -> return $ Left "Column not found in table2"
+    let selectedColumnsTable1WithTableName = getColumnsWithTableName table1Name table1
+    let selectedColumnsTable2WithTableName = getColumnsWithTableName table2Name table2
 
     joinColumnIndexTable1 <- either (const (return 0)) return $ case findColumnIndex selectedColumnsTable1 joinColumnNameTable1 of
       Just index -> Right index
@@ -505,29 +505,55 @@ executeJoin tableDataList maybeCondition columns isAggregationRequested = do
       Nothing -> Left "Column not found in table2"
 
 
-    let resultColumns = case columns of
-          Lib2.All -> selectedColumnsTable1 ++ selectedColumnsTable2
+    -- let resultColumns = case columns of
+    --       Lib2.All -> selectedColumnsTable1 ++ selectedColumnsTable2
+    --       Lib2.SelectedColumns colNames ->
+    --         selectedColumnsTable1 ++ filter (\col -> Lib2.extractColumnName col `elem` map snd colNames) selectedColumnsTable2
+    let (filteredColumnsTable1, filteredColumnsTable2) = case columns of
+          Lib2.All -> (selectedColumnsTable1, selectedColumnsTable2)
           Lib2.SelectedColumns colNames ->
-            selectedColumnsTable1 ++ filter (\col -> Lib2.extractColumnName col `elem` map snd colNames) selectedColumnsTable2
+            let 
+              filterCondition (tableName, col) = 
+                any (\(selectedTableName, selectedColName) -> selectedTableName == tableName && selectedColName == col) colNames
+              filteredColumnsTable1WithTableName = filter (filterCondition . (\(table, col) -> (table, Lib2.extractColumnName col))) selectedColumnsTable1WithTableName
+              filteredColumnsTable2WithTableName = filter (filterCondition . (\(table, col) -> (table, Lib2.extractColumnName col))) selectedColumnsTable2WithTableName
+              filteredColumnsTable1 = map snd filteredColumnsTable1WithTableName  
+              filteredColumnsTable2 = map snd filteredColumnsTable2WithTableName  
+            in (filteredColumnsTable1, filteredColumnsTable2)
+    
+    let indicesTable1 = map (\col -> findColumnIndex selectedColumnsTable1 (Lib2.extractColumnName col)) filteredColumnsTable1
+    let indicesTable2 = map (\col -> findColumnIndex selectedColumnsTable2 (Lib2.extractColumnName col)) filteredColumnsTable2
 
-    -- Perform the inner join
-    let joinedRows = innerJoin joinColumnIndexTable1 joinColumnIndexTable2 table1 table2 maybeCondition
+    let indecesOfColumns = case columns of
+          Lib2.All -> indicesTable1 ++ map (fmap (+ length indicesTable1)) indicesTable2
+          Lib2.SelectedColumns _ -> map (\(tableName, col) -> case tableName of
+                              t | t == table1Name -> findColumnIndex selectedColumnsTable1 col
+                                | t == table2Name -> Just $ fromMaybe (error "Column not found") (fmap (+ length selectedColumnsTable1) (findColumnIndex selectedColumnsTable2 col))
+                                | otherwise -> error ("Unknown table name: " ++ t)
+                            ) $ case columns of 
+                                  Lib2.SelectedColumns col -> col
+--traceShowM ("Indices of columns: " ++ show indecesOfColumns)
+
+    let joinedRows = innerJoin indecesOfColumns joinColumnIndexTable1 joinColumnIndexTable2 table1 table2 maybeCondition
+
+    --let joinedRows = innerJoin indicesTable1 indicesTable2 joinColumnIndexTable1 joinColumnIndexTable2 table1 table2 maybeCondition
 
     -- Create a new DataFrame with selected columns and joined rows
-    let resultDataFrame = DataFrame resultColumns joinedRows
+    --let resultDataFrame = DataFrame resultColumns joinedRows
+    let resultDataFrame = DataFrame (filteredColumnsTable1++filteredColumnsTable2) joinedRows
 
     -- Perform aggregation if requested
     if isAggregationRequested
         then executeAggregation resultDataFrame joinedRows columns
-        else executeSelection resultDataFrame joinedRows columns
+        else return $ Right resultDataFrame
 
 -- Function to perform inner join
-innerJoin :: Int -> Int -> DataFrame -> DataFrame -> Maybe Lib2.Condition -> [Row]
-innerJoin joinColumnIndexTable1 joinColumnIndexTable2 table1 table2 maybeCondition =
+innerJoin :: [Maybe Int] -> Int -> Int -> DataFrame -> DataFrame -> Maybe Lib2.Condition -> [Row]
+innerJoin indecesOfColumns joinColumnIndexTable1 joinColumnIndexTable2 table1 table2 maybeCondition =
   let rowsTable1 = rowsWithIndixes table1
       rowsTable2 = rowsWithIndixes table2
       matchingRows = filter (\(index1, row1, index2, row2) -> evaluateJoinCondition (index1, row1) (index2, row2)) (joinedRows rowsTable1 rowsTable2) -- leaves only needed columns in a row
-  in map (\(_, row1, _, row2) -> createJoinedRow joinColumnIndexTable1 joinColumnIndexTable2 row1 row2) matchingRows
+  in map (\(_, row1, _, row2) -> createJoinedRow indecesOfColumns (row1++row2)) matchingRows
   where
     rowsWithIndixes :: DataFrame -> [(Int, Row)]
     rowsWithIndixes (DataFrame _ rows) = zip [0..] rows
@@ -559,21 +585,16 @@ innerJoin joinColumnIndexTable1 joinColumnIndexTable2 table1 table2 maybeConditi
             case valueEither of
               Left (tableName2, columnName2) -> value1 == value2
         _ -> error "Unsupported operator for join condition"
-    
-      where
-        findColumnIndex :: [Column] -> ColumnName -> Int
-        findColumnIndex columns colName =
-          case elemIndex colName (map Lib2.extractColumnName columns) of
-            Just index -> index
-            Nothing -> error $ "Column not found: " ++ colName
 
-    createJoinedRow :: Int -> Int -> Row -> Row -> Row
-    createJoinedRow joinColumnIndexTable1' joinColumnIndexTable2' row1 row2 =
-      let prefix1 = take joinColumnIndexTable1' row1
-          suffix1 = drop joinColumnIndexTable1' row1
-          prefix2 = take joinColumnIndexTable2' row2
-          suffix2 = drop joinColumnIndexTable2' row2
-      in prefix1 ++ suffix1 ++ prefix2 ++ suffix2
+    createJoinedRow :: [Maybe Int] -> Row -> Row
+    createJoinedRow indecesOfColumns rows =
+      let
+        selectedValues = map (\index ->
+          case index of
+            Just i -> rows !! i
+            Nothing -> NullValue
+            ) indecesOfColumns
+      in selectedValues
 
 -- Function to execute selection without join
 executeNoJoin :: [(TableName, DataFrame)] -> Maybe Lib2.Condition -> Lib2.Columns -> Bool -> Execution (Either ErrorMessage DataFrame)
