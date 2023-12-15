@@ -174,7 +174,7 @@ main = hspec $ do
   
   
   describe "Executes:" $ do
-    -- it "Executes TEST_NAME_IN_PLURAL" $ do
+    -- it "Executes TEST_NAME_IN" $ do
     --   let (parsed, rez, expected) =
     --         ( "YOUR SELECT GOES HERE;",
     --           runExecuteIO (Lib3.executeSql parsed),
@@ -192,7 +192,7 @@ main = hspec $ do
     --         )
     --   result <- rez
     --   result `shouldBe` Right expected
-
+    
     it "Executes simple querries with WHERE statements" $ do
       let (parsed, rez, expected) =
             ( "select * from employees where employees.name <> 'Vi';",
@@ -210,7 +210,7 @@ main = hspec $ do
             )
       result <- rez
       result `shouldBe` Right expected
-    it "Executes inserts" $ do
+    it "Executes INSERT" $ do
       let (parsed, rez, expected) =
             ( "insert into employees (id, name, surname) values (69, 'a','b');",
               runExecuteIO (Lib3.executeSql parsed),
@@ -255,7 +255,7 @@ main = hspec $ do
         (Right _, Right _) -> expectationFailure "Expected Left with an error message, but got Right"   
 
 
-    it "Executes updates" $ do
+    it "Executes UPDATE" $ do
       let (parsed, rez, expected) =
             ( "update employees set name = 'ar' , id = 100 where employees.surname <> 'Dl' ;",
               runExecuteIO (Lib3.executeSql parsed),
