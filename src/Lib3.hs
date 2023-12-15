@@ -33,6 +33,7 @@ import Data.Char
 import Lib2 (ParsedStatement(InsertStatement))
 import Data.Maybe
 import Debug.Trace
+import System.Directory
 
 
 
@@ -52,7 +53,27 @@ data ExecutionAlgebra next
   | ParseStatement String (Lib2.ParsedStatement -> next)
   | ExecuteStatement Lib2.ParsedStatement (Either ErrorMessage DataFrame -> next)
   | ExecuteInsert Lib2.ParsedStatement (Either ErrorMessage DataFrame -> next)
+  | GetAllTables () (Either ErrorMessage [FilePath] -> next)
   deriving Functor
+
+getAllTables :: Execution (Either ErrorMessage [FilePath])
+getAllTables = liftF $ GetAllTables () id
+
+
+executeShowTables :: Execution (Either ErrorMessage DataFrame)
+executeShowTables = do
+  tablePaths <- getAllTables
+  case tablePaths of
+    Left errorMessage -> return $ Left errorMessage
+    Right paths -> do
+
+      let tableNames = map (\file -> takeWhile (/= '.') file) (filter (\file -> ".json" `isSuffixOf` file) paths)
+
+      let columnName = Column "Table Names" StringType
+      let rows = map (\name -> [StringValue name]) tableNames
+      let resultDataFrame = DataFrame [columnName] rows
+
+      return $ Right resultDataFrame
 
 
 loadFile :: TableName -> Execution (Either ErrorMessage DataFrame)
@@ -259,6 +280,7 @@ executeSql sql = do
         let column = Column "time" StringType
             value = StringValue (show currentTime)
         return $ Right $ DataFrame [column] [[value]]
+    "showtables" -> executeShowTables
     _ | "select" `isPrefixOf` sql' -> do
         parsedStatement <- parseStatement sql
         executeStatement parsedStatement

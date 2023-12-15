@@ -22,7 +22,9 @@ import System.Console.Repline
   )
 import System.Console.Terminal.Size (Window, size, width)
 import GHC.Real (underflowError)
+import System.Directory
 import qualified Lib3
+import Data.ByteString (any)
 
 type Repl a = HaskelineT IO a
 
@@ -113,6 +115,12 @@ runExecuteIO (Free step) = do
           let jsonStr = Lib3.serializeDataFrame dataFrame
           Prelude.writeFile filePath jsonStr
           return (next ())
+
+        runStep (Lib3.GetAllTables () f) = do
+          tables <- getDirectoryContents "db"
+          case filter (`notElem` [".", ".."]) tables of
+            [] -> return $ f (Left "no tables found")
+            _ -> return $ f (Right tables)
 
       
 
