@@ -333,6 +333,21 @@ main = hspec $ do
             )
       result <- rez
       result `shouldBe` Right expected          
+    it "Executes SHOW TABLES query" $ do
+      let (parsed, rez, expected) =
+            ( "showtables",
+              runExecuteIO (Lib3.executeSql parsed),
+              DataFrame
+                [
+                  Column "Table Names" StringType
+                ]
+                [
+                  [StringValue "db/employee"], 
+                  [StringValue "db/employees2"]
+                ]
+            )
+      result <- rez
+      result `shouldBe` Right expected         
     it "Executes JOIN" $ do
       let (parsed, rez, expected) =
             ( "SELECT employees.id, employees2.Age FROM employees, employees2 WHERE employees.id = employees2.id;",
@@ -403,3 +418,5 @@ runExecuteIO (Free step) = do
           let jsonStr = Lib3.serializeDataFrame dataFrame
           -- Prelude.writeFile filePath jsonStr --wtf we do with this?
           return (next ())
+        runStep (Lib3.GetAllTables () f) =
+          return $ f (Right ["db/employee.json", "db/employees2.json"])       

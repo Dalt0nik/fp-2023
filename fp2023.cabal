@@ -51,8 +51,8 @@ library
   build-depends:
       aeson
     , base >=4.7 && <5
-    , directory
     , bytestring
+    , directory
     , free
     , mtl
     , time
@@ -71,8 +71,8 @@ executable fp2023-manipulate
   build-depends:
       aeson
     , base >=4.7 && <5
-    , directory
     , bytestring
+    , directory
     , extra
     , fp2023
     , free
@@ -96,6 +96,7 @@ executable fp2023-select-all
       aeson
     , base >=4.7 && <5
     , bytestring
+    , directory
     , extra
     , fp2023
     , mtl
@@ -117,6 +118,7 @@ executable fp2023-select-more
       aeson
     , base >=4.7 && <5
     , bytestring
+    , directory
     , extra
     , fp2023
     , mtl
@@ -139,6 +141,7 @@ test-suite fp2023-test
       aeson
     , base >=4.7 && <5
     , bytestring
+    , directory
     , fp2023
     , free
     , hspec

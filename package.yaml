@@ -25,6 +25,8 @@ dependencies:
 - transformers
 - mtl
 - bytestring
+- directory
+ 
 
 default-extensions:
 - ImportQualifiedPost
@@ -47,6 +49,8 @@ library:
   - time
   - transformers
   - bytestring
+  - directory
+
 
 executables:
   fp2023-select-all:
@@ -80,6 +84,7 @@ executables:
     - -threaded
     - -rtsopts
     - -with-rtsopts=-N
+    
     dependencies:
     - fp2023
     - extra
@@ -88,6 +93,8 @@ executables:
     - free
     - time
     - bytestring
+    - directory
+
 
 tests:
   fp2023-test:
@@ -101,4 +108,6 @@ tests:
     - fp2023
     - hspec
     - free
+    - directory
+
 
