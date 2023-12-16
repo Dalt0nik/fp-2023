@@ -176,25 +176,8 @@ main = hspec $ do
   
   
   
-  describe "Executes:" $ do
-    -- it "Executes TEST_NAME_IN" $ do
-    --   let (parsed, rez, expected) =
-    --         ( "YOUR SELECT GOES HERE;",
-    --           runExecuteIO (Lib3.executeSql parsed),
-    --           DataFrame
-    --             [ Column "id" IntegerType,
-    --               Column "name" StringType,
-    --               Column "surname" StringType
-    --             ] 
-    --             [ [IntegerValue 1, StringValue "Vi", StringValue "Po"], --modify df accordingly
-    --               [IntegerValue 2, StringValue "Ed", StringValue "Dl"],
-    --               [IntegerValue 3, StringValue "KN", StringValue "KS"],
-    --               [IntegerValue 4, StringValue "DN", StringValue "DS"],
-    --               [IntegerValue 5, StringValue "AN", StringValue "AS"]
-    --             ]
-    --         )
-    --   result <- rez
-    --   result `shouldBe` Right expected
+  describe "Execute:" $ do
+
     
     it "Executes simple querries with WHERE statements" $ do
       let (parsed, rez, expected) =
@@ -363,8 +346,31 @@ main = hspec $ do
                 ]
             )
       result <- rez
-      result `shouldBe` Right expected         
-    it "Executes JOIN" $ do
+      result `shouldBe` Right expected
+    it "Executes SELECT * with joined tables" $ do
+      let (parsed, rez, expected) =
+            ( "SELECT * FROM employees, employees2 WHERE employees.id = employees2.id;",
+              runExecuteIO (Lib3.executeSql parsed),
+              Right $ DataFrame
+                [
+                  Column "id" IntegerType,
+                  Column "name" StringType,
+                  Column "surname" StringType,
+                  Column "id" IntegerType,
+                  Column "Name" StringType,
+                  Column "Age" IntegerType,
+                  Column "IsStudent" BoolType
+                ]
+                [
+                  [IntegerValue 1, StringValue "Vi", StringValue "Po", IntegerValue 1, StringValue "Alice", IntegerValue 25, BoolValue False],
+                  [IntegerValue 2, StringValue "Ed", StringValue "Dl", IntegerValue 2, StringValue "Bob", IntegerValue 30, BoolValue True],
+                  [IntegerValue 3, StringValue "KN", StringValue "KS", IntegerValue 3, StringValue "Charlie", IntegerValue 22, BoolValue True],
+                  [IntegerValue 4, StringValue "DN", StringValue "DS", IntegerValue 4, StringValue "artiom", IntegerValue 20, BoolValue True]
+                ]
+            )
+      result <- rez
+      result `shouldBe` expected    
+    it "Executes SELECT <specific columns> with joined tables" $ do
       let (parsed, rez, expected) =
             ( "SELECT employees.id, employees2.Age FROM employees, employees2 WHERE employees.id = employees2.id;",
               runExecuteIO (Lib3.executeSql parsed),
@@ -382,6 +388,7 @@ main = hspec $ do
             )
       result <- rez
       result `shouldBe` expected
+    
 
 
 runExecuteIO :: Lib3.Execution r -> IO r
@@ -426,8 +433,7 @@ runExecuteIO (Free step) = do
               \[{\"contents\":2,\"tag\":\"IntegerValue\"}, {\"contents\":\"Bob\",\"tag\":\"StringValue\"}, {\"contents\":30,\"tag\":\"IntegerValue\"}, {\"contents\":true,\"tag\":\"BoolValue\"}], \
               \[{\"contents\":3,\"tag\":\"IntegerValue\"}, {\"contents\":\"Charlie\",\"tag\":\"StringValue\"}, {\"contents\":22,\"tag\":\"IntegerValue\"}, {\"contents\":true,\"tag\":\"BoolValue\"}], \
               \[{\"contents\":4,\"tag\":\"IntegerValue\"}, {\"contents\":\"artiom\",\"tag\":\"StringValue\"}, {\"contents\":20,\"tag\":\"IntegerValue\"}, {\"contents\":true,\"tag\":\"BoolValue\"}] ]]"
-
-            return (next $ Lib3.deserializeDataFrame jsonContent2)   
+            return (next $ Lib3.deserializeDataFrame jsonContent2)
         -- !!!we need to change this
         runStep (Lib3.SaveTable (tableName, dataFrame) next) = do
           --let filePath = "db/" ++ tableName ++ ".json"
