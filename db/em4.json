@@ -1,6 +1,6 @@
 [
     [
-      ["name", "IntegerType"], ["age", "IntegerType"], ["isStudent", "BoolType"], ["some", "StringType"]
+      ["name", "StringType"], ["age", "IntegerType"], ["isStudent", "BoolType"], ["some", "StringType"]
     ],
     [
       [{"contents": "Alice", "tag": "StringValue"}, {"contents": 25, "tag": "IntegerValue"}, {"contents": false, "tag": "BoolValue"}, {"contents": "Abc", "tag": "StringValue"}],
