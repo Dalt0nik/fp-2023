@@ -9,6 +9,9 @@ import Test.Hspec
 import Control.Monad.Trans.Except (runExceptT)
 import DataFrame (DataFrame (..), Row, Column (..), ColumnType (..), Value (..))
 import Control.Monad.Free (Free (..))
+import Data.Time.Clock (UTCTime)
+import Control.Monad.IO.Class (liftIO)
+import Text.Read (readMaybe)  -- Import readMaybe from Text.Read
 
 
 -- mockDatabaseJSON :: String
@@ -316,6 +319,19 @@ main = hspec $ do
             )
       result <- rez
       result `shouldBe` Right expected  
+    it "Executes now() query" $ do
+      let (parsed, rez, expected) =
+            ( "now ()",
+              runExecuteIO (Lib3.executeSql parsed),
+              DataFrame
+                [ Column "time" StringType
+                ]
+                [ 
+                  [StringValue "2023-11-26 23:59:59 UTC"]
+                ]
+            )
+      result <- rez
+      result `shouldBe` Right expected        
     it "Executes SHOW TABLE query" $ do
       let (parsed, rez, expected) =
             ( "show table employees;",
@@ -419,4 +435,12 @@ runExecuteIO (Free step) = do
           -- Prelude.writeFile filePath jsonStr --wtf we do with this?
           return (next ())
         runStep (Lib3.GetAllTables () f) =
-          return $ f (Right ["db/employee.json", "db/employees2.json"])       
+          return $ f (Right ["db/employee.json", "db/employees2.json"])   
+        runStep (Lib3.GetCurrentTime next) = do
+          currentTime <- liftIO $ return $ parseUTCTime "2023-11-26 23:59:59 UTC"
+          return (next currentTime)
+
+parseUTCTime :: String -> UTCTime
+parseUTCTime str = case readMaybe str of
+    Just time -> time
+    Nothing -> error "Failed to parse UTC time"

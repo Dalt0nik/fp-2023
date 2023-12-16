@@ -146,5 +146,6 @@ test-suite fp2023-test
     , free
     , hspec
     , mtl
+    , time
     , transformers
   default-language: Haskell2010
