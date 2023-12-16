@@ -441,6 +441,4 @@ runExecuteIO (Free step) = do
           return (next currentTime)
 
 parseUTCTime :: String -> UTCTime
-parseUTCTime str = case readMaybe str of
-    Just time -> time
-    Nothing -> error "Failed to parse UTC time"
+parseUTCTime str = read str
