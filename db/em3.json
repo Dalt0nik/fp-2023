@@ -1,0 +1,8 @@
+[
+    [["id", "IntegerType"], ["surname", "StringType"], ["name", "StringType"]],
+    [
+      [{"contents": 1, "tag": "IntegerValue"}, {"contents": "do", "tag": "StringValue"}, {"contents": "don", "tag": "StringValue"}],
+      [{"contents": 2, "tag": "IntegerValue"}, {"contents": "alo", "tag": "StringValue"}, {"contents": "Alice", "tag": "StringValue"}],
+      [{"contents": 3, "tag": "IntegerValue"}, {"contents": "ar", "tag": "StringValue"}, {"contents": "artiom", "tag": "StringValue"}]
+    ]
+  ]

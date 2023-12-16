@@ -14,23 +14,26 @@ module Lib3
     ExecutionAlgebra(..),
     showTable,
     executeInsert, --i think we don't need to export this
-    --save,
-    --load,
     deserializeDataFrame,
-    serializeDataFrame
+    serializeDataFrame,
+    executeStatement
   )
 where
 
+import Data.Either (rights)
 import Control.Monad.Free (Free (..), liftF)
 import DataFrame (DataFrame (..), Row, Column (..), ColumnType (..), Value (..))
 import Data.Time ( UTCTime )
-import InMemoryTables (TableName, tableEmployees)
+import InMemoryTables (TableName, tableEmployees, database)
 import Lib2 qualified
 import Data.Aeson hiding (Value) 
 import qualified Data.ByteString.Lazy.Char8 as BSLC
 import Data.List
 import Data.Char
 import Lib2 (ParsedStatement(InsertStatement))
+import Data.Maybe
+import Debug.Trace
+import System.Directory
 
 
 
@@ -50,7 +53,27 @@ data ExecutionAlgebra next
   | ParseStatement String (Lib2.ParsedStatement -> next)
   | ExecuteStatement Lib2.ParsedStatement (Either ErrorMessage DataFrame -> next)
   | ExecuteInsert Lib2.ParsedStatement (Either ErrorMessage DataFrame -> next)
+  | GetAllTables () (Either ErrorMessage [FilePath] -> next)
   deriving Functor
+
+getAllTables :: Execution (Either ErrorMessage [FilePath])
+getAllTables = liftF $ GetAllTables () id
+
+
+executeShowTables :: Execution (Either ErrorMessage DataFrame)
+executeShowTables = do
+  tablePaths <- getAllTables
+  case tablePaths of
+    Left errorMessage -> return $ Left errorMessage
+    Right paths -> do
+
+      let tableNames = map (\file -> takeWhile (/= '.') file) (filter (\file -> ".json" `isSuffixOf` file) paths)
+
+      let columnName = Column "Table Names" StringType
+      let rows = map (\name -> [StringValue name]) tableNames
+      let resultDataFrame = DataFrame [columnName] rows
+
+      return $ Right resultDataFrame
 
 
 loadFile :: TableName -> Execution (Either ErrorMessage DataFrame)
@@ -66,11 +89,8 @@ getCurrentTime = liftF $ GetCurrentTime id
 parseStatement :: String -> Execution Lib2.ParsedStatement
 parseStatement input = liftF $ ParseStatement input id
 
-executeStatement :: Lib2.ParsedStatement -> Execution (Either ErrorMessage DataFrame)
-executeStatement statement = liftF $ ExecuteStatement statement id
-
 showTable :: TableName -> Execution (Either ErrorMessage DataFrame)
-showTable tableName = case Lib2.fetchTableFromDatabase tableName of
+showTable tableName = case fetchTableFromDatabase tableName of
   Right (_, table) -> return $ Right table
   Left errMsg -> return $ Left errMsg
 
@@ -152,7 +172,7 @@ executeUpdate (Lib2.UpdateStatement tableName updates condition) = do
           -- Filter rows based on the condition
           let maybeDataFrame = extractDataFrame loadedDF
           let filteredRows = case maybeDataFrame of
-                Just df -> Lib2.filterRows existingColumns df condition --returns [Row]
+                Just df -> filterRows existingColumns df condition --returns [Row]
                 Nothing -> []  
           -- Update the DataFrame with new values
           let updatedRows = updateRows existingColumns updateColumnNames updates filteredRows
@@ -214,7 +234,7 @@ updateRows columns colNames updates rows =
 
     getColumnValue :: Column -> Row -> Value
     getColumnValue col row' =
-      case Lib2.findColumnIndex columns (getColumnName col) of
+      case findColumnIndex columns (getColumnName col) of
         Just colIndex -> row' !! colIndex
         Nothing -> error "Column not found in dataframe"  -- Handle the error case appropriately
 
@@ -235,7 +255,7 @@ executeDelete (Lib2.DeleteStatement tableName condition) = do
   -- Filter rows based on the condition
   let maybeDataFrame = extractDataFrame loadedDF
   let filteredRows = case maybeDataFrame of
-        Just df -> Lib2.filterRows existingColumns df condition
+        Just df -> filterRows existingColumns df condition
         Nothing -> []  -- Handle the error case appropriately
 
   -- Delete the DataFrame with filtered rows
@@ -255,11 +275,12 @@ executeSql :: String -> Execution (Either ErrorMessage DataFrame)
 executeSql sql = do
   let sql' = map toLower (filter (not . isSpace) sql)
   case sql' of
-    "now()" -> do
+    _ | "now()" `isPrefixOf` sql' -> do
         currentTime <- getCurrentTime
         let column = Column "time" StringType
             value = StringValue (show currentTime)
         return $ Right $ DataFrame [column] [[value]]
+    _ | "showtables" `isPrefixOf` sql' -> executeShowTables
     _ | "select" `isPrefixOf` sql' -> do
         parsedStatement <- parseStatement sql
         executeStatement parsedStatement
@@ -272,9 +293,33 @@ executeSql sql = do
     _ | "delete" `isPrefixOf` sql' -> do
         parsedStatement <- parseStatement sql
         executeDelete parsedStatement
+    _ | "showtable" `isPrefixOf` sql' -> do
+        let restOfSql = drop (9) sql'
+        let tableName = takeWhile (/= ';') restOfSql
+        executeShowTable tableName        
     _ -> do
       return $ Left "command not found"
-      
+
+executeShowTable :: TableName -> Execution (Either ErrorMessage DataFrame)
+executeShowTable tableName = do
+  -- Load the DataFrame with the given table name
+  loadedDF <- loadFile tableName
+
+  -- Extract column names and types from the loaded DataFrame
+  let columns = dataframeColumns loadedDF
+  let rows = map (\(Column name colType) -> [StringValue name, StringValue (show colType)]) columns
+
+  -- Create a new DataFrame with two columns: "Column Name" and "Column Type"
+  let columnNameColumn = Column "Column Name" StringType
+  let columnTypeColumn = Column "Column Type" StringType
+  let resultDataFrame = DataFrame [columnNameColumn, columnTypeColumn] rows
+
+  return $ Right resultDataFrame
+
+
+
+
+  
 
 
 ---------SERIALISATION----DESERIALIZATION------------------
@@ -323,4 +368,317 @@ deserializeDataFrame jsonStr =
   case eitherDecode (BSLC.pack jsonStr) of
     Right df -> Right df
     Left err -> Left $ "Failed to decode JSON: " ++ err
+
+
+--EXECUTE SELECT FROM LIB2
+
+ -- Executes a parsed statement. Produces a DataFrame. Uses
+-- InMemoryTables.databases a source of data.
+-- Execute a SELECT statement
+executeStatement :: Lib2.ParsedStatement -> Execution (Either ErrorMessage DataFrame)
+executeStatement (Lib2.SelectStatement columns tableNames maybeCondition) = do
+
+  --Check whether column tables match fetched tables
+
+  let columnSourceTables = map fst $ getSourcesFromColumns columns
+  if not (all (\sourceTable -> sourceTable `elem` tableNames) columnSourceTables)
+    then return $ Left "Invalid source table in columns"
+  else do
+    tableDataList <- mapM loadFile tableNames
+    let tablesDF = rights tableDataList
+    let combinedList = zip tableNames tablesDF
+    
+    let isAggregationRequested = case columns of
+          Lib2.Aggregation _ -> True
+          _ -> False
+
+    -- Check if joining tables is requested
+    let numberOfTables = length tableNames
+    --if numberOfTables 
+    let isJoinRequested = case maybeCondition of
+          Just condition -> involvesMultipleTables condition
+          _ -> False
+
+    -- Perform inner join if requested
+    if isJoinRequested then
+      if numberOfTables == 2 then executeJoin combinedList maybeCondition columns isAggregationRequested else return $ Left "only two tables can be joined"
+    else
+      if numberOfTables /= 1 then return (Left "only one table should be provided") else executeNoJoin combinedList maybeCondition columns isAggregationRequested
+
+executeStatement Lib2.ShowTablesStatement = return $ Right $ DataFrame [Column "TABLE NAME" StringType] (map (\tableName -> [StringValue tableName]) (Lib2.showTables database))
+executeStatement (Lib2.ShowTableStatement tableName) =
+  case lookup (map toLower tableName) database of
+    Just (DataFrame columns _) -> return $ Right $ DataFrame [Column "COLUMN NAMES" StringType] (map (\col -> [StringValue (Lib2.extractColumnName col)]) columns)
+    Nothing -> return $ Left (tableName ++ " not found")
+executeStatement _ = return $ Left "Not implemented: executeStatement"
+
+getSourcesFromColumns :: Lib2.Columns -> [(TableName, ColumnName)]
+getSourcesFromColumns columns =
+    case columns of
+        Lib2.All -> []
+        Lib2.SelectedColumns colNames -> map (\(tableName, columnName) -> (tableName, columnName)) colNames
+
+-- -- Function to execute aggregation functions
+executeAggregationFunction :: Lib2.AggregateFunction -> Maybe Int -> [Row] -> Value
+executeAggregationFunction Lib2.Min (Just colIndex) rows =
+    let values = map (extractValueAtIndex colIndex) rows
+    in case minimumValue values of
+        Just result -> IntegerValue result
+        Nothing -> NullValue
+executeAggregationFunction Lib2.Sum (Just colIndex) rows =
+    let values = map (extractValueAtIndex colIndex) rows
+    in case sumIntValues values of
+        Just result -> IntegerValue result
+        Nothing -> NullValue
+executeAggregationFunction _ _ _ = NullValue
+
+-- Helper function to find the minimum value from a list of Values
+minimumValue :: [Value] -> Maybe Integer
+minimumValue values =
+    case catMaybes [getIntValue value | value <- values] of
+        [] -> Nothing
+        ints -> Just (minimum ints)
+
+getIntValue :: Value -> Maybe Integer
+getIntValue (IntegerValue i) = Just i
+getIntValue _ = Nothing
+
+extractValueAtIndex :: Int -> Row -> Value
+extractValueAtIndex index row
+    | index >= 0 && index < length row = row !! index
+    | otherwise = NullValue
+
+sumIntValues :: [Value] -> Maybe Integer
+sumIntValues values =
+    let intValues = [i | IntegerValue i <- values]
+    in if null intValues then Nothing else Just (sum intValues)
+
+createAggregationColumns :: [(Lib2.AggregateFunction, String)] -> [Column]
+createAggregationColumns funcs = map (\(aggFunc, colName) -> Column (show aggFunc ++ "(" ++ colName ++ ")") IntegerType) funcs
+
+
+fetchTableFromDatabase :: TableName -> Either ErrorMessage (TableName, DataFrame)
+fetchTableFromDatabase tableName = case lookup (map toLower tableName) database of
+    Just table -> Right (map toLower tableName, table)
+    Nothing -> Left (tableName ++ " not found")
+
+getColumns :: DataFrame -> [Column]
+getColumns (DataFrame columns _) = columns
+
+getColumnsWithTableName :: TableName -> DataFrame -> [(TableName, Column)]
+getColumnsWithTableName tableName (DataFrame columns _) = map (\col -> (tableName, col)) columns
+
+findColumnIndex :: [Column] -> ColumnName -> Maybe Int
+findColumnIndex columns columnName = elemIndex columnName (map Lib2.extractColumnName columns)
+
+
+filterRows :: [Column] -> DataFrame -> Maybe Lib2.Condition -> [Row]
+filterRows columns (DataFrame _ rows) condition = case condition of
+    Just (Lib2.Comparison whereStatement []) -> filter (evaluateWhereStatement whereStatement) rows
+    Just (Lib2.Comparison whereStatement logicalOps) -> filter (evaluateWithLogicalOps whereStatement logicalOps) rows
+    Nothing -> rows  -- When condition is Nothing, return all rows
+  where
+    evaluateWhereStatement :: Lib2.WhereAtomicStatement -> Row -> Bool
+    evaluateWhereStatement (Lib2.Where (tableName, columnName) op valueEither) row = case op of
+        Lib2.Equals -> case valueEither of
+            Right (StringValue stringValue) -> extractValue columnName row == stringValue
+        Lib2.NotEquals -> case valueEither of
+            Right (StringValue stringValue) -> extractValue columnName row /= stringValue
+        Lib2.LessThanOrEqual -> case valueEither of
+            Right (StringValue stringValue) -> extractValue columnName row <= stringValue
+        Lib2.GreaterThanOrEqual -> case valueEither of
+            Right (StringValue stringValue) -> extractValue columnName row >= stringValue
+
+    evaluateWithLogicalOps :: Lib2.WhereAtomicStatement -> [(Lib2.LogicalOp, Lib2.WhereAtomicStatement)] -> Row -> Bool
+    evaluateWithLogicalOps whereStatement [] row = evaluateWhereStatement whereStatement row
+    evaluateWithLogicalOps whereStatement ((Lib2.Or, nextWhereStatement):rest) row =
+        evaluateWhereStatement whereStatement row || evaluateWithLogicalOps nextWhereStatement rest row
+
+    extractValue :: ColumnName -> Row -> String
+    extractValue columnName row =
+        case findColumnIndex columns columnName of
+            Just colIndex -> case row !! colIndex of
+                StringValue value -> value
+                _ -> ""
+            Nothing -> ""
+
+dataFrameColumns :: DataFrame -> [Column]
+dataFrameColumns (DataFrame columns _) = columns
+
+-- Select columns
+-- selectColumns :: [Column] -> Columns -> [Column]
+-- selectColumns allColumns (SelectedColumns colNames) =
+
+-- Function to check if a condition involves multiple tables (MUST BE FIRST)
+involvesMultipleTables :: Lib2.Condition -> Bool
+involvesMultipleTables (Lib2.Comparison whereStatement _) = involvesMultipleTablesInWhere whereStatement -- || any (\(_, cond) -> involvesMultipleTablesInWhere cond) rest --join part must be always the first in where clause
+involvesMultipleTables _ = False
+
+-- Function to check if a WHERE clause involves multiple tables
+involvesMultipleTablesInWhere :: Lib2.WhereAtomicStatement -> Bool
+involvesMultipleTablesInWhere (Lib2.Where (tableName1, _) _ (Left (tableName2, _))) = tableName1 /= tableName2
+involvesMultipleTablesInWhere _ = False
+
+-- Function to execute an inner join
+executeJoin :: [(TableName, DataFrame)] -> Maybe Lib2.Condition -> Lib2.Columns -> Bool -> Execution (Either ErrorMessage DataFrame)
+executeJoin tableDataList maybeCondition columns isAggregationRequested = do
+    -- Extract tables and condition
+    let (table1Name, table1) = head tableDataList
+    let (table2Name, table2) = head (tail tableDataList)
+    --let joinCondition = fromMaybe (error "Invalid join condition") maybeCondition -- ???
+
+    -- Ensure join tables have the same column
+    let (joinColumnNameTable1, joinColumnNameTable2) = case maybeCondition of
+            Just (Lib2.Comparison (Lib2.Where (tableName1, columnName1) _ (Left (tableName2, columnName2))) _) ->
+              if tableName1 == table1Name then (columnName1, columnName2)
+              else if tableName1 == table2Name then (columnName2, columnName1)
+              else error "Invalid join condition"
+            Just _ -> error "Invalid join condition"
+            Nothing -> error "Invalid join condition"
+
+    -- Fetch the columns to be selected from the join
+    let selectedColumnsTable1 = getColumns table1
+    let selectedColumnsTable2 = getColumns table2
+
+    let selectedColumnsTable1WithTableName = getColumnsWithTableName table1Name table1
+    let selectedColumnsTable2WithTableName = getColumnsWithTableName table2Name table2
+
+    joinColumnIndexTable1 <- either (const (return 0)) return $ case findColumnIndex selectedColumnsTable1 joinColumnNameTable1 of
+      Just index -> Right index
+      Nothing -> Left "Column not found in table1"
+
+    joinColumnIndexTable2 <- either (const (return 0)) return $ case findColumnIndex selectedColumnsTable2 joinColumnNameTable2 of
+      Just index -> Right index
+      Nothing -> Left "Column not found in table2"
+
+
+    -- let resultColumns = case columns of
+    --       Lib2.All -> selectedColumnsTable1 ++ selectedColumnsTable2
+    --       Lib2.SelectedColumns colNames ->
+    --         selectedColumnsTable1 ++ filter (\col -> Lib2.extractColumnName col `elem` map snd colNames) selectedColumnsTable2
+    let (filteredColumnsTable1, filteredColumnsTable2) = case columns of
+          Lib2.All -> (selectedColumnsTable1, selectedColumnsTable2)
+          Lib2.SelectedColumns colNames ->
+            let 
+              filterCondition (tableName, col) = 
+                any (\(selectedTableName, selectedColName) -> selectedTableName == tableName && selectedColName == col) colNames
+              filteredColumnsTable1WithTableName = filter (filterCondition . (\(table, col) -> (table, Lib2.extractColumnName col))) selectedColumnsTable1WithTableName
+              filteredColumnsTable2WithTableName = filter (filterCondition . (\(table, col) -> (table, Lib2.extractColumnName col))) selectedColumnsTable2WithTableName
+              filteredColumnsTable1 = map snd filteredColumnsTable1WithTableName  
+              filteredColumnsTable2 = map snd filteredColumnsTable2WithTableName  
+            in (filteredColumnsTable1, filteredColumnsTable2)
+    
+    let indicesTable1 = map (\col -> findColumnIndex selectedColumnsTable1 (Lib2.extractColumnName col)) filteredColumnsTable1
+    let indicesTable2 = map (\col -> findColumnIndex selectedColumnsTable2 (Lib2.extractColumnName col)) filteredColumnsTable2
+
+    let indecesOfColumns = case columns of
+          Lib2.All -> indicesTable1 ++ map (fmap (+ length indicesTable1)) indicesTable2
+          Lib2.SelectedColumns _ -> map (\(tableName, col) -> case tableName of
+                              t | t == table1Name -> findColumnIndex selectedColumnsTable1 col
+                                | t == table2Name -> Just $ fromMaybe (error "Column not found") (fmap (+ length selectedColumnsTable1) (findColumnIndex selectedColumnsTable2 col))
+                                | otherwise -> error ("Unknown table name: " ++ t)
+                            ) $ case columns of 
+                                  Lib2.SelectedColumns col -> col
+--traceShowM ("Indices of columns: " ++ show indecesOfColumns)
+
+    let joinedRows = innerJoin indecesOfColumns joinColumnIndexTable1 joinColumnIndexTable2 table1 table2 maybeCondition
+
+    --let joinedRows = innerJoin indicesTable1 indicesTable2 joinColumnIndexTable1 joinColumnIndexTable2 table1 table2 maybeCondition
+
+    -- Create a new DataFrame with selected columns and joined rows
+    --let resultDataFrame = DataFrame resultColumns joinedRows
+    let resultDataFrame = DataFrame (filteredColumnsTable1++filteredColumnsTable2) joinedRows
+
+    -- Perform aggregation if requested
+    if isAggregationRequested
+        then executeAggregation resultDataFrame joinedRows columns
+        else return $ Right resultDataFrame
+
+-- Function to perform inner join
+innerJoin :: [Maybe Int] -> Int -> Int -> DataFrame -> DataFrame -> Maybe Lib2.Condition -> [Row]
+innerJoin indecesOfColumns joinColumnIndexTable1 joinColumnIndexTable2 table1 table2 maybeCondition =
+  let rowsTable1 = rowsWithIndixes table1
+      rowsTable2 = rowsWithIndixes table2
+      matchingRows = filter (\(index1, row1, index2, row2) -> evaluateJoinCondition (index1, row1) (index2, row2)) (joinedRows rowsTable1 rowsTable2) -- leaves only needed columns in a row
+  in map (\(_, row1, _, row2) -> createJoinedRow indecesOfColumns (row1++row2)) matchingRows
+  where
+    rowsWithIndixes :: DataFrame -> [(Int, Row)]
+    rowsWithIndixes (DataFrame _ rows) = zip [0..] rows
+
+    joinedRows :: [(Int, Row)] -> [(Int, Row)] -> [(Int, Row, Int, Row)]
+    joinedRows list1 list2 = [(index1, row1, index2, row2) | (index1, row1) <- list1, (index2, row2) <- list2]
+
+    evaluateJoinCondition :: (Int, Row) -> (Int, Row) -> Bool
+    evaluateJoinCondition (index1, row1) (index2, row2) =
+      case maybeCondition of
+        Just (Lib2.Comparison whereStatement rest) ->
+          let result = evaluateWhereStatement whereStatement (row1 ++ row2)
+          in result--trace ("Join condition result: " ++ show result ++ ", row1: " ++ show row1 ++ ", row2: " ++ show row2) result
+        Nothing -> trace ("Join condition result (no condition): " ++ show (index1 == index2)) (index1 == index2)
+
+    evaluateWhereStatement :: Lib2.WhereAtomicStatement -> Row -> Bool
+    evaluateWhereStatement (Lib2.Where (tableName, columnName) op valueEither) row =
+      let
+        extractValue' colIndex =
+          if colIndex < length row
+            then row !! colIndex
+            else NullValue
+        value1 = extractValue' joinColumnIndexTable1
+        value2 = extractValue' (length (getColumns table1) + joinColumnIndexTable2) -- extracting value from the second table (num.of col. of 1st table + index in 2nd table)
+        
+      in --trace ("Value1: " ++ show value1 ++ ", Value2: " ++ show value2) $
+      case op of
+        Lib2.Equals ->
+            case valueEither of
+              Left (tableName2, columnName2) -> value1 == value2
+        _ -> error "Unsupported operator for join condition"
+
+    createJoinedRow :: [Maybe Int] -> Row -> Row
+    createJoinedRow indecesOfColumns rows =
+      let
+        selectedValues = map (\index ->
+          case index of
+            Just i -> rows !! i
+            Nothing -> NullValue
+            ) indecesOfColumns
+      in selectedValues
+
+-- Function to execute selection without join
+executeNoJoin :: [(TableName, DataFrame)] -> Maybe Lib2.Condition -> Lib2.Columns -> Bool -> Execution (Either ErrorMessage DataFrame)
+executeNoJoin tableDataList maybeCondition columns isAggregationRequested = do
+  -- Fetch the specified table
+  let (tableName, table) = head tableDataList
+
+  -- Filter rows based on the condition
+  let filteredRows = filterRows (getColumns table) table maybeCondition
+
+  -- Perform aggregation if requested
+  if isAggregationRequested
+      then executeAggregation table filteredRows columns
+      else executeSelection table filteredRows columns
+
+
+executeAggregation :: DataFrame -> [Row] -> Lib2.Columns -> Execution (Either ErrorMessage DataFrame)
+executeAggregation table filteredRows columns = do
+  let aggregationFunctions = case columns of
+          Lib2.Aggregation funcs -> funcs
+          _ -> []
+
+  let resultRow = map (\(aggFunc, colName) -> executeAggregationFunction aggFunc (findColumnIndex (getColumns table) colName) filteredRows) aggregationFunctions
+  return $ Right $ DataFrame (createAggregationColumns aggregationFunctions) [resultRow]
+
+executeSelection :: DataFrame -> [Row] -> Lib2.Columns -> Execution (Either ErrorMessage DataFrame)
+executeSelection table filteredRows columns = do
+    let selectedColumnNames = case columns of
+            Lib2.All -> map Lib2.extractColumnName (getColumns table)
+            Lib2.SelectedColumns colNames -> map snd colNames
+    let selectedColumnIndexes = mapMaybe (\colName -> findColumnIndex (getColumns table) colName) selectedColumnNames
+
+    let selectedColumns = map (\i -> (getColumns table) !! i) selectedColumnIndexes
+
+    let selectedRows = map (\row -> map (\i -> (row !! i)) selectedColumnIndexes) filteredRows
+
+    return $ Right $ DataFrame selectedColumns selectedRows
+
+
 

@@ -22,7 +22,9 @@ import System.Console.Repline
   )
 import System.Console.Terminal.Size (Window, size, width)
 import GHC.Real (underflowError)
+import System.Directory
 import qualified Lib3
+import Data.ByteString (any)
 
 type Repl a = HaskelineT IO a
 
@@ -88,16 +90,12 @@ runExecuteIO (Free step) = do
                 Left err -> error ("Parsing error: " ++ err)  -- Errors don't work
           return $ next parsedStatement
 
-        runStep (Lib3.ExecuteStatement statement next) = do
-          let executionResult = Lib2.executeStatement statement
-          return $ next executionResult
 
-
-        -- OLD WAY
-        -- runStep (Lib3.LoadFile tableName next) = do
-        --   let filePath = "db/" ++ tableName ++ ".json"
-        --   fileContent <- Prelude.readFile filePath 
-        --   return $ next $ Lib3.deserializeDataFrame fileContent
+        runStep (Lib3.ExecuteStatement statement f) = do
+          executionResult <- runExecuteIO $ Lib3.executeStatement statement
+          case executionResult of
+            Right df -> return $ f (Right df)
+            Left errMsg -> return $ f (Left errMsg)
 
         runStep (Lib3.LoadFile tableName next) = do
           let filePath = "db/" ++ tableName ++ ".json"
@@ -117,6 +115,14 @@ runExecuteIO (Free step) = do
           let jsonStr = Lib3.serializeDataFrame dataFrame
           Prelude.writeFile filePath jsonStr
           return (next ())
+
+        runStep (Lib3.GetAllTables () f) = do
+          tables <- getDirectoryContents "db"
+          case filter (`notElem` [".", ".."]) tables of
+            [] -> return $ f (Left "no tables found")
+            _ -> return $ f (Right tables)
+
+      
 
 
 

@@ -22,6 +22,11 @@ description:         Please see the README on GitHub at <https://github.com/gith
 dependencies:
 - base >= 4.7 && < 5
 - aeson
+- transformers
+- mtl
+- bytestring
+- directory
+ 
 
 default-extensions:
 - ImportQualifiedPost
@@ -44,6 +49,8 @@ library:
   - time
   - transformers
   - bytestring
+  - directory
+
 
 executables:
   fp2023-select-all:
@@ -77,6 +84,7 @@ executables:
     - -threaded
     - -rtsopts
     - -with-rtsopts=-N
+    
     dependencies:
     - fp2023
     - extra
@@ -85,6 +93,8 @@ executables:
     - free
     - time
     - bytestring
+    - directory
+
 
 tests:
   fp2023-test:
@@ -97,3 +107,8 @@ tests:
     dependencies:
     - fp2023
     - hspec
+    - free
+    - directory
+    - time
+
+
