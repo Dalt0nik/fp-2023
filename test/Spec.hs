@@ -388,7 +388,19 @@ main = hspec $ do
             )
       result <- rez
       result `shouldBe` expected
-    
+    it "Throws an error for a query with JOIN for invalid source table in selected columns" $ do
+      let (parsed, rez, expected) =
+            ( "SELECT employees.id, notExistingTable.Age FROM employees, employees2 WHERE employees.id = employees2.id;",
+              runExecuteIO (Lib3.executeSql parsed),
+              Left "Invalid source table in columns"
+            )
+      result <- rez
+      case (expected, result) of
+        (Left expectedErr, Left actualErr) -> actualErr `shouldBe` expectedErr
+        (Right _, Left _) -> expectationFailure "Expected Left with an error message, but got Right"
+        (Left _, Right _) -> expectationFailure "Expected Right, but got Left with an error message"
+        (Right _, Right _) -> expectationFailure "Expected Left with an error message, but got Right"       
+ 
 
 
 runExecuteIO :: Lib3.Execution r -> IO r
