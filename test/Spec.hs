@@ -304,7 +304,7 @@ main = hspec $ do
       result `shouldBe` Right expected  
     it "Executes now() query" $ do
       let (parsed, rez, expected) =
-            ( "now ()",
+            ( "select now();",
               runExecuteIO (Lib3.executeSql parsed),
               DataFrame
                 [ Column "time" StringType

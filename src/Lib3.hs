@@ -275,15 +275,18 @@ executeSql :: String -> Execution (Either ErrorMessage DataFrame)
 executeSql sql = do
   let sql' = map toLower (filter (not . isSpace) sql)
   case sql' of
-    _ | "now()" `isPrefixOf` sql' -> do
-        currentTime <- getCurrentTime
-        let column = Column "time" StringType
-            value = StringValue (show currentTime)
-        return $ Right $ DataFrame [column] [[value]]
     _ | "showtables" `isPrefixOf` sql' -> executeShowTables
     _ | "select" `isPrefixOf` sql' -> do
-        parsedStatement <- parseStatement sql
-        executeStatement parsedStatement
+        let restOfSql = drop 6 sql'
+        case restOfSql of
+          _ | "now()" `isPrefixOf` restOfSql -> do
+            currentTime <- getCurrentTime
+            let column = Column "time" StringType
+                value = StringValue (show currentTime)
+            return $ Right $ DataFrame [column] [[value]]
+          _ -> do
+            parsedStatement <- parseStatement sql
+            executeStatement parsedStatement
     _ | "insert" `isPrefixOf` sql' -> do
         parsedStatement <- parseStatement sql
         executeInsert parsedStatement
