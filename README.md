@@ -81,3 +81,19 @@ Add more and run tests: `stack test`
  - You do not create new tables in this task, so "CREATE" statements is not needed. You can ship a prepopulated "db" directory with all metada (table names, column names, column types) in data files.
  - You have to implement query execution business logics in DSL based on Free Monad. You have to implement two interpreters: a) "production" one, which reads files from file system and b) "test" one which you use in tests and keeps all data in memory.
  - Reuse Lib1 and Lib2 as much as you can. 
+
+
+ # Task 4
+
+ We have to intoroduce two more executables to the project: 'fp2023-sql-server' and 'fp2023-sql-client'.
+ The client must be very thin: in just sends SQL statements to the server and renders dataframes which were returned with a response.
+
+ ### Requirements:
+ - You have to support "CREATE TABLE" and "DROP TABLE" statements (a way to define and delete a table)
+ - a) Primary keys and foreign keys must be supported (declared within CREATE TABLE statement), this means updates/deletes/inserts must check if referenced value exists OR b) ORDER BY (multiple columns, ASC/DESC) must be supported. You choose which to implement: (a) or (b)
+ - SQL statement parser must be implemented as State+EitherT monad
+ - Server keep all data in memory in a thread safe manner, and the data is periodically (e.g. once per second) saved to files (in the same format as in Task 3) so data survives server restarts. The data must be read from disk on server startup.
+ - Http must be used as communication transport layer (the server is http (web-)server, the client in a http client). You must use existing libraries for that.
+ - Data used for client-server communication must not be raw, json or yaml must be used: if json is used to store data in files then yaml must be used to serialize/deserialize request/response data (and vice-versa). Existing libraries must be used. This also means that rendering of dataframe is client's responsibility, server just encodes the datafames into some yaml/json based format.
+ - Reuse Lib1, Lib2 and Lib3 as much as you can.
+ - Port number can be hardcoded.
