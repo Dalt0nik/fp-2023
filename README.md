@@ -85,7 +85,7 @@ Add more and run tests: `stack test`
 
  # Task 4
 
- We have to intoroduce two more executables to the project: 'fp2023-sql-server' and 'fp2023-sql-client'.
+ We have to intoroduce two more executables to the project: `fp2023-sql-server` and `fp2023-sql-client`.
  The client must be very thin: in just sends SQL statements to the server and renders dataframes which were returned with a response.
 
  ### Requirements:
