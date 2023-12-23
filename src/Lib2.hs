@@ -14,6 +14,7 @@ import Data.List
 import Data.Maybe
 import Debug.Trace
 import Text.Read (Lexeme(String))
+import Text.ParserCombinators.ReadP (optional, sepBy1)
 
 
 type ErrorMessage = String
@@ -42,10 +43,16 @@ data Columns = All
 
 type ColumnName = String
 
+data Order = Order [(TableName, ColumnName, OrderDirection)] deriving (Show, Eq)
+
+data OrderDirection
+  = Asc
+  | Desc deriving (Show, Eq)
+
 data ParsedStatement
   = ShowTablesStatement
   | ShowTableStatement TableName
-  | SelectStatement Columns [TableName] (Maybe Condition)
+  | SelectStatement Columns [TableName] (Maybe Condition) (Maybe Order)
   | InsertStatement TableName [ColumnName] [[Value]]
   | UpdateStatement TableName [(ColumnName, Value)] (Maybe Condition)
   | DeleteStatement TableName (Maybe Condition) deriving (Show, Eq)-- Condition
@@ -123,7 +130,24 @@ parseSelectQuery input = do
     (skip, _) <- runParser parseWhitespace input'
     (input'', tableNames) <- parseFromClause skip
     (input''', conditions) <- parseWhere input''
-    return (SelectStatement columns tableNames conditions)
+    (input'''', orders) <- parseOrders input'''
+    return (SelectStatement columns tableNames conditions orders)
+
+--DEBUG
+-- parseSelectQuery :: String -> Either ErrorMessage ParsedStatement
+-- parseSelectQuery input = do
+--     (input', columns) <- parseColumnListQuery input
+--     (skip, _) <- runParser parseWhitespace input'
+--     (input'', tableNames) <- parseFromClause skip
+--     (input''', conditions) <- parseWhere input''
+--     (input'''', orders) <- parseOrders input'''
+--     -- Debug print
+--     traceShowM input'
+--     traceShowM input''
+--     traceShowM input'''
+--     traceShowM input''''
+--     return (SelectStatement columns tableNames conditions orders)
+
 
 parseFromClause :: String -> Either ErrorMessage (String, [TableName])
 parseFromClause input = do
@@ -150,36 +174,36 @@ test = case parseStatement "Select employees3.job, employees2.name from employee
  -- Executes a parsed statement. Produces a DataFrame. Uses
 -- InMemoryTables.databases a source of data.
 -- Execute a SELECT statement
-executeStatement :: ParsedStatement -> Either ErrorMessage DataFrame
-executeStatement (SelectStatement columns tableNames maybeCondition) = do
+-- executeStatement :: ParsedStatement -> Either ErrorMessage DataFrame
+-- executeStatement (SelectStatement columns tableNames maybeCondition) = do
 
-  -- Fetch the specified tables
-  tableDataList <- mapM fetchTableFromDatabase tableNames
+--   -- Fetch the specified tables
+--   tableDataList <- mapM fetchTableFromDatabase tableNames
 
-  -- Check if aggregation is requested
-  let isAggregationRequested = case columns of
-        Aggregation _ -> True
-        _ -> False
+--   -- Check if aggregation is requested
+--   let isAggregationRequested = case columns of
+--         Aggregation _ -> True
+--         _ -> False
 
-  -- Check if joining tables is requested
-  let numberOfTables = length tableNames
-  --if numberOfTables 
-  let isJoinRequested = case maybeCondition of
-        Just condition -> involvesMultipleTables condition
-        _ -> False
+--   -- Check if joining tables is requested
+--   let numberOfTables = length tableNames
+--   --if numberOfTables 
+--   let isJoinRequested = case maybeCondition of
+--         Just condition -> involvesMultipleTables condition
+--         _ -> False
 
-  -- Perform inner join if requested
-  if isJoinRequested then
-     if numberOfTables == 2 then executeJoin tableDataList maybeCondition columns isAggregationRequested else Left "only two tables can be joined"
-  else
-    if numberOfTables /= 1 then Left "only one table should be provided" else executeNoJoin tableDataList maybeCondition columns isAggregationRequested
+--   -- Perform inner join if requested
+--   if isJoinRequested then
+--      if numberOfTables == 2 then executeJoin tableDataList maybeCondition columns isAggregationRequested else Left "only two tables can be joined"
+--   else
+--     if numberOfTables /= 1 then Left "only one table should be provided" else executeNoJoin tableDataList maybeCondition columns isAggregationRequested
 
-executeStatement ShowTablesStatement = Right $ DataFrame [Column "TABLE NAME" StringType] (map (\tableName -> [StringValue tableName]) (showTables database))
-executeStatement (ShowTableStatement tableName) =
-  case lookup (map toLower tableName) database of
-    Just (DataFrame columns _) -> Right $ DataFrame [Column "COLUMN NAMES" StringType] (map (\col -> [StringValue (extractColumnName col)]) columns)
-    Nothing -> Left (tableName ++ " not found")
-executeStatement _ = Left "Not implemented: executeStatement"
+-- executeStatement ShowTablesStatement = Right $ DataFrame [Column "TABLE NAME" StringType] (map (\tableName -> [StringValue tableName]) (showTables database))
+-- executeStatement (ShowTableStatement tableName) =
+--   case lookup (map toLower tableName) database of
+--     Just (DataFrame columns _) -> Right $ DataFrame [Column "COLUMN NAMES" StringType] (map (\col -> [StringValue (extractColumnName col)]) columns)
+--     Nothing -> Left (tableName ++ " not found")
+-- executeStatement _ = Left "Not implemented: executeStatement"
 
 -- -- Function to execute aggregation functions
 executeAggregationFunction :: AggregateFunction -> Maybe Int -> [Row] -> Value
@@ -555,25 +579,55 @@ parseCondition = parseComparisonWithStringValue <|> parseComparisonWithColumnRef
       columnName <- parseName
       return (tableName, columnName)
 
-    -- Updated parseTableAndColumnName
-    -- parseTableAndColumnName :: Parser (Maybe TableName, ColumnName)
-    -- parseTableAndColumnName = parseWithTableName <|> parseWithoutTableName
-    --   where
-    --     parseWithTableName = do
-    --       tableName <- parseName
-    --       _ <- parseChar '.'
-    --       columnName <- parseName
-    --       return (Just tableName, columnName)
-
-    --     parseWithoutTableName = do
-    --       columnName <- parseName
-    --       return (Just "", columnName)
-
-
-
 
 parseWhere :: String -> Either ErrorMessage (String, Maybe Condition)
 parseWhere = runParser parseWhereStatement
+
+-----------------------------ORDER PARSER--------------------------------
+
+parseOrders :: String -> Either ErrorMessage (String, Maybe Order)
+parseOrders = runParser parseOrderStatement
+
+parseOrderStatement :: Parser (Maybe Order)
+parseOrderStatement = parseWithOrder <|> parseWithoutOrder
+  where
+    parseWithOrder = do
+      _ <- many parseWhitespace
+      _ <- parseKeyword "ORDER BY"
+      _ <- many parseWhitespace
+      firstOrderItem <- parseOrderItem
+      otherOrderItems <- many $ do
+        _ <- parseComma
+        _ <- many parseWhitespace
+        orderItem <- parseOrderItem
+        return orderItem
+      return $ Just $ Order (firstOrderItem : otherOrderItems)
+
+    parseWithoutOrder = pure Nothing
+
+parseOrderItem :: Parser (TableName, ColumnName, OrderDirection)
+parseOrderItem = do
+    _ <- many parseWhitespace
+    (tableName, columnName) <- parseTableAndColumnName
+    _ <- many parseWhitespace
+    direction <- parseOrderDirection
+    return (tableName, columnName, direction)
+
+parseOrderDirection :: Parser OrderDirection
+parseOrderDirection = parseAsc <|> parseDesc
+  where
+    parseAsc = do
+      _ <- many parseWhitespace
+      _ <- parseKeyword "ASC"
+      return Asc
+
+    parseDesc = do
+      _ <- many parseWhitespace
+      _ <- parseKeyword "DESC"
+      return Desc
+
+parseComma :: Parser Char
+parseComma = parseChar ','
 
 -----------MIN SUM----------------------------------------------
 parseAggregateFunction :: String -> Either ErrorMessage (String, Columns) -- aka condition aggregation
