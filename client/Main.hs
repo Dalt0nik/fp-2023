@@ -1,17 +1,23 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# OPTIONS_GHC -Wno-deprecations #-}
 module Main (main) where
 
 import Network.Wreq
-import qualified Data.Text as T
-import Data.Aeson (ToJSON, FromJSON, toJSON, parseJSON, withObject, (.:))
-import GHC.Generics (Generic)
+import Data.Aeson (FromJSON)
 import Control.Lens
-import Data.Text.Encoding (decodeUtf8)
 import Data.ByteString.Lazy (ByteString)
-import Data.ByteString (fromStrict)
-import Data.ByteString.Lazy (ByteString)
-import Data.ByteString (toStrict)
+import Data.ByteString ( fromStrict, toStrict )
+import DataFrame
+import qualified Data.Yaml as Yaml
+
+instance FromJSON ColumnType
+instance FromJSON Column
+instance FromJSON Value
+instance FromJSON DataFrame
+
+yamlToDataFrame :: ByteString -> Maybe DataFrame
+yamlToDataFrame bs = Yaml.decode (toStrict bs)
 
 -- Define a function to get the table from the server
 getTableFromServer :: String -> IO (Maybe ByteString)
@@ -25,9 +31,12 @@ getTableFromServer tableName = do
 
 main :: IO ()
 main = do
-  -- Replace "your_table_name" with the actual table name you want to fetch
   let tableName = "flags"
   result <- getTableFromServer tableName
   case result of
-    Just table -> putStrLn $ "Received table:\n" ++  T.unpack (decodeUtf8 $ toStrict table)
-    Nothing    -> putStrLn $ "Table not found."
+    Just table -> do
+      case yamlToDataFrame table of
+        Just df -> putStrLn $ "Converted DataFrame:\n" ++ show df
+        Nothing -> putStrLn "Failed to parse YAML data into DataFrame."
+    Nothing    -> putStrLn "Table not found."
+
