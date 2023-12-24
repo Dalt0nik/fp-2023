@@ -3,40 +3,31 @@
 module Main (main) where
 
 import Network.Wreq
-import Data.Text
+import qualified Data.Text as T
 import Data.Aeson (ToJSON, FromJSON, toJSON, parseJSON, withObject, (.:))
 import GHC.Generics (Generic)
 import Control.Lens
-import qualified Data.Text.IO as T
+import Data.Text.Encoding (decodeUtf8)
+import Data.ByteString.Lazy (ByteString)
+import Data.ByteString (fromStrict)
+import Data.ByteString.Lazy (ByteString)
+import Data.ByteString (toStrict)
 
+-- Define a function to get the table from the server
+getTableFromServer :: String -> IO (Maybe ByteString)
+getTableFromServer tableName = do
+  let url = "http://localhost:3000/tables/" ++ tableName
+  response <- get url
+  let body = response ^. responseBody
+  return $ if response ^. responseStatus . statusCode == 404
+    then Nothing
+    else Just body
 
-data TranslateRequest = TranslateRequest{
-    q:: Text,
-    source::Text,
-    target::Text,
-    format::Text,
-    api_key:: Text
-} deriving(Generic)
-
-instance ToJSON TranslateRequest
-
-
-data TranslateResponse = TranslateResponse {
-    translatedText :: Text
-} deriving(Generic)
-
-instance FromJSON TranslateResponse where
-    parseJSON = withObject "TranslateResponse" $ \v ->
-        TranslateResponse <$> v .: "translatedText"
-        
 main :: IO ()
 main = do
-    rsp <- asJSON  =<< post "https://translate.terraprint.co/translate" (toJSON $ TranslateRequest {
-        q = "i need a dollar dollar,a dollar is what i need",
-		source = "en",
-		target = "ja",
-		format = "text",
-		api_key = ""
-    })
-
-    T.putStrLn $ translatedText $ rsp ^. responseBody 
+  -- Replace "your_table_name" with the actual table name you want to fetch
+  let tableName = "flags"
+  result <- getTableFromServer tableName
+  case result of
+    Just table -> putStrLn $ "Received table:\n" ++  T.unpack (decodeUtf8 $ toStrict table)
+    Nothing    -> putStrLn $ "Table not found."

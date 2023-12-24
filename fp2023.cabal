@@ -160,7 +160,7 @@ executable fp2023-sql-client
     , wreq
     , yaml
   default-language: Haskell2010
-  
+
 executable fp2023-sql-server
   main-is: Main.hs
   other-modules:
@@ -189,8 +189,9 @@ executable fp2023-sql-server
     , terminal-size
     , text
     , time
+    , transformers
     , yaml
-  default-language: Haskell2010  
+  default-language: Haskell2010
 
 test-suite fp2023-test
   type: exitcode-stdio-1.0
