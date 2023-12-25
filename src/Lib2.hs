@@ -813,8 +813,8 @@ parseColumnNameAndColumnType = do
 
 convertToColumnType :: String -> ColumnType
 convertToColumnType ct
-  | "int" == map toLower ct = IntegerType
-  | "boolean" == map toLower ct = BoolType
+  | "int" == ct = IntegerType
+  | "boolean" == ct = BoolType
   | otherwise = error $ ct ++ "is an unknown column type"
 
 parseCreateTable :: String -> Either ErrorMessage ParsedStatement
