@@ -1,4 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# OPTIONS_GHC -Wno-incomplete-patterns #-}
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# HLINT ignore "Redundant return" #-}
+{-# HLINT ignore "Use withFile" #-}
+{-# OPTIONS_GHC -Wno-deprecations #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 import Web.Scotty
 import qualified Data.Yaml as Yaml
@@ -9,24 +15,65 @@ import InMemoryTables (database, TableName)
 import Network.HTTP.Types (notFound404)
 import Data.Aeson ( ToJSON, FromJSON )
 import Data.ByteString (fromStrict)
+import qualified Lib3
+import Control.Alternative.Free
+import Control.Monad.Free
+import Lib2
+import System.Directory
+import Control.Monad.Cont
+import Data.Time
+import Control.Exception
+import Data.Text.Lazy as TL
 
-instance FromJSON ColumnType
+
+import Control.Monad.IO.Class (MonadIO (liftIO))
+import Control.Monad.Free (Free (..))
+import Control.Monad (when)
+
+import Data.Functor((<&>))
+import Data.Time ( UTCTime, getCurrentTime )
+import Data.List qualified as L
+import System.IO (withFile, IOMode(ReadMode, WriteMode), hGetContents, hPutStrLn, openFile, hClose)
+import Control.Exception (bracket, evaluate)
+import Lib1 qualified
+import Lib2 qualified
+import Lib3 qualified
+import DataFrame (DataFrame (..), Row, Column (..), ColumnType (..), Value (..))
+import System.Console.Repline
+  ( CompleterStyle (Word),
+    ExitDecision (Exit),
+    HaskelineT,
+    WordCompleter,
+    evalRepl,
+  )
+import System.Console.Terminal.Size (Window, size, width)
+import GHC.Real (underflowError)
+import System.Directory
+import qualified Lib3
+import Data.ByteString (any)
+import Network.HTTP.Types.Status
+
+
+--import Main (runExecuteIO)
+
+
+-- instance FromJSON ColumnType
 instance ToJSON ColumnType
 
-instance FromJSON Column
+-- instance FromJSON Column
 instance ToJSON Column
 
-instance FromJSON DataFrame.Value
+-- instance FromJSON DataFrame.Value
 
 instance ToJSON DataFrame.Value
 
-instance FromJSON DataFrame
+-- instance FromJSON DataFrame
 instance ToJSON DataFrame
 
 
 -- Convert DataFrame to YAML ByteString
 dataFrameToYaml :: DataFrame -> BS.ByteString
-dataFrameToYaml df = fromStrict $ Yaml.encode df
+dataFrameToYaml df = Data.ByteString.fromStrict $ Yaml.encode df
 
 
 getTableRoute :: TableName -> ActionM ()
@@ -36,13 +83,78 @@ getTableRoute tableName = do
     Just table -> raw $ dataFrameToYaml table
     Nothing -> status notFound404
 
+
+runExecuteIOEndpoint :: String -> IO (Either String DataFrame)
+runExecuteIOEndpoint query = do
+  result <- runExecuteIO $ Lib3.executeSql query
+  case result of
+    Right df -> return $ Right df
+    Left errMsg -> return $ Left errMsg
+
+runExecuteIO :: Lib3.Execution r -> IO r
+runExecuteIO (Control.Monad.Free.Pure r) = return r
+runExecuteIO (Free step) = do
+    next <- runStep step
+    runExecuteIO next
+    where
+        runStep :: Lib3.ExecutionAlgebra a -> IO a
+        runStep (Lib3.GetCurrentTime next) = getCurrentTime >>= return . next
+        runStep (Lib3.ShowTable tableName f) = do
+          tableResult <- runExecuteIO $ Lib3.showTable tableName
+          return $ f tableResult
+
+        runStep (Lib3.ParseStatement input next) = do
+          let parsedStatement = case Lib2.parseStatement input of
+                Right stmt -> stmt
+                Left err -> error ("Parsing error: " ++ err)  -- Errors don't work
+          return $ next parsedStatement
+
+        runStep (Lib3.ExecuteStatement statement f) = do
+          executionResult <- runExecuteIO $ Lib3.executeStatement statement
+          case executionResult of
+            Right df -> return $ f (Right df)
+            Left errMsg -> return $ f (Left errMsg)
+
+        runStep (Lib3.LoadFile tableName next) = do
+          let filePath = "db/" ++ tableName ++ ".json"
+          contentResult <- bracket
+              (openFile filePath ReadMode)
+              hClose
+              (\handle -> do
+                  fileContent <- hGetContents handle
+                  evaluate (Prelude.length fileContent)
+                  return $ next $ Lib3.deserializeDataFrame fileContent
+              )
+          return contentResult
+
+        runStep (Lib3.SaveTable (tableName, dataFrame) next) = do
+          let filePath = "db/" ++ tableName ++ ".json"
+          let jsonStr = Lib3.serializeDataFrame dataFrame
+          Prelude.writeFile filePath jsonStr
+          return (next ())
+
+        runStep (Lib3.GetAllTables () f) = do
+          tables <- getDirectoryContents "db"
+          case Prelude.filter (`notElem` [".", ".."]) tables of
+            [] -> return $ f (Left "no tables found")
+            _ -> return $ f (Right tables)
+
 -- Define the main application
 app :: ScottyM ()
 app = do
   get "/tables/:name" $ do --http://localhost:3000/tables
     tableName <- param "name"
     getTableRoute tableName
-
+  post "/execute" $ do
+    requestBody <- body
+    case Yaml.decodeEither (BS.toStrict requestBody) of
+      Right (query :: String) -> do
+        result <- liftIO $ runExecuteIOEndpoint query
+        case result of
+          Right df -> raw $ dataFrameToYaml df
+          Left errMsg -> status badRequest400 >> text (TL.fromStrict $ Data.Text.pack errMsg)
+      Left yamlError ->
+        status badRequest400 >> text (TL.fromStrict $ Data.Text.pack $ "YAML parsing error: " ++ yamlError)
 -- Run the application on port 3000
 main :: IO ()
 main = scotty 3000 app
