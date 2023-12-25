@@ -97,3 +97,8 @@ Add more and run tests: `stack test`
  - Data used for client-server communication must not be raw, json or yaml must be used: if json is used to store data in files then yaml must be used to serialize/deserialize request/response data (and vice-versa). Existing libraries must be used. This also means that rendering of dataframe is client's responsibility, server just encodes the datafames into some yaml/json based format.
  - Reuse Lib1, Lib2 and Lib3 as much as you can.
  - Port number can be hardcoded.
+
+ ## To run our application
+ Run these commands in separete shells:
+ `stack run fp2023-sql-server`
+ `stack run fp2023-sql-client`
