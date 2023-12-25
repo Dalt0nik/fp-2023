@@ -5,7 +5,6 @@
 {-# HLINT ignore "Use lambda-case" #-}
 
 module Lib2 where
-
 import DataFrame (DataFrame (..), Row, Column (..), ColumnType (..), Value (..))
 import InMemoryTables (TableName, database)
 import Control.Applicative((<|>), empty, Alternative (some, many))
@@ -14,11 +13,13 @@ import Data.List
 import Data.Maybe
 import Debug.Trace
 import Text.Read (Lexeme(String))
-import Text.ParserCombinators.ReadP (optional, sepBy1)
+--import Text.ParserCombinators.ReadP (optional, sepBy1)
 import Control.Monad.Trans.State.Strict (State, StateT, get, put, runState, runStateT)
 import Control.Monad.Trans.Except (ExceptT, throwE, runExceptT)
 import Control.Monad.Trans.Class(lift)
 import Control.Exception (throw)
+
+
 
 type ErrorMessage = String
 type Database = [(TableName, DataFrame)]
@@ -39,7 +40,6 @@ data WhereAtomicStatement = Where (TableName, ColumnName) Operator (Either (Tabl
 data Condition
   = Comparison WhereAtomicStatement [(LogicalOp, WhereAtomicStatement)] deriving (Show, Eq) -- string aka column
 
-
 data Columns = All
   | SelectedColumns [(TableName, ColumnName)]
   | Aggregation [(AggregateFunction, String)] deriving (Show, Eq) -- string aka column 
@@ -58,7 +58,8 @@ data ParsedStatement
   | SelectStatement Columns [TableName] (Maybe Condition) (Maybe Order)
   | InsertStatement TableName [ColumnName] [[Value]]
   | UpdateStatement TableName [(ColumnName, Value)] (Maybe Condition)
-  | DeleteStatement TableName (Maybe Condition) deriving (Show, Eq)-- Condition
+  | DeleteStatement TableName (Maybe Condition)
+  | CreateTableStatement TableName [(ColumnName, ColumnType)] deriving (Show, Eq)-- Condition
 
 type ParseError = String
 type Parser a = ExceptT ParseError (State String) a
@@ -333,14 +334,14 @@ innerJoin joinColumnIndexTable1 joinColumnIndexTable2 table1 table2 maybeConditi
             else NullValue
         value1 = extractValue' joinColumnIndexTable1
         value2 = extractValue' (length (getColumns table1) + joinColumnIndexTable2) -- extracting value from the second table (num.of col. of 1st table + index in 2nd table)
-        
+
       in --trace ("Value1: " ++ show value1 ++ ", Value2: " ++ show value2) $
       case op of
         Equals ->
             case valueEither of
               Left (tableName2, columnName2) -> value1 == value2
         _ -> error "Unsupported operator for join condition"
-    
+
       where
         findColumnIndex :: [Column] -> ColumnName -> Int
         findColumnIndex columns colName =
@@ -402,12 +403,6 @@ parseName = do
            lift $ put (drop (length xs) inp)
            return xs
 
--- parseChar :: Char -> Parser Char
--- parseChar a = Parser $ \inp ->
---     case inp of
---         [] -> Left "Empty input"
---         (x:xs) -> if a == x then Right (xs, a) else Left ([a] ++ " expected but " ++ [x] ++ " found")
-
 parseChar :: Char -> Parser Char
 parseChar a = do
     inp <- lift get
@@ -439,7 +434,7 @@ parseColumnList = do
 
 parseTableAndColumnName :: Parser (TableName, ColumnName)
 parseTableAndColumnName = do
-    _ <- many $ parseChar ' ' 
+    _ <- many $ parseChar ' '
     tableName <- parseName
     _ <- parseChar '.'
     columnName <- parseName
@@ -461,7 +456,7 @@ parseKeyword keyword = do
   let l = length keyword
   if map toLower (take l inp) == map toLower keyword &&
     (null (drop l inp) || not (isAlpha (head (drop l inp)))) then
-    do 
+    do
       lift $ put (drop l inp)
       return keyword
   else
@@ -588,7 +583,7 @@ parseOrderDirection = parseAsc <|> parseDesc
       return Desc
 
 -----------MIN SUM----------------------------------------------
-parseAggregateFunction :: String -> Either ErrorMessage (String, Columns) 
+parseAggregateFunction :: String -> Either ErrorMessage (String, Columns)
 parseAggregateFunction = runParser parseAggregationStatement
 
 parseAggregationStatement :: Parser Columns
@@ -638,7 +633,7 @@ parseValue =
       parseInteger :: Parser Integer
       --parseInteger = Parser $ \inp ->
       parseInteger = do
-        inp <- lift get 
+        inp <- lift get
         let (digits, rest) = span isDigit inp
         case reads digits of
           [(n, "")] -> do
@@ -774,3 +769,78 @@ parseDelete input =
   case runParser parseDeleteStatement input of
     Right (_, parsedStatement) -> Right parsedStatement
     Left errMsg -> Left errMsg
+
+parseCreateTableStatement :: Parser ParsedStatement
+parseCreateTableStatement = do
+  _ <- many parseWhitespace
+  _ <- parseKeyword "CREATE"
+  _ <- parseWhitespace
+  _ <- parseKeyword "TABLE"
+  _ <- parseWhitespace
+  tableName <- parseName
+  _ <- many parseWhitespace
+  _ <- parseChar '('
+  _ <- many parseWhitespace
+
+  columnName <- parseName
+  _ <- many $ parseChar ' '
+  columnTypeString <- parseName
+  (columnType, size) <- handleOptionalNumber $ map toLower columnTypeString
+
+  other <- many parseCSColNameAndType
+
+  _ <- many parseWhitespace
+  _ <- parseChar ')'
+  _ <- many parseWhitespace
+  _ <- parseChar ';'
+  return $ CreateTableStatement tableName ((columnName, columnType) : other)
+
+parseCSColNameAndType :: Parser (ColumnName, ColumnType)
+parseCSColNameAndType = do
+    _ <- many $ parseChar ' ' --many means that can be zero or more ' ' chars
+    _ <- parseChar ','
+    _ <- many $ parseChar ' '
+    parseColumnNameAndColumnType
+
+parseColumnNameAndColumnType  :: Parser (ColumnName, ColumnType)
+parseColumnNameAndColumnType = do
+    _ <- many $ parseChar ' '
+    columnName <- parseName
+    _ <- many $ parseChar ' '
+    columnTypeString <- parseName
+    (columnType, size) <- handleOptionalNumber $ map toLower (filter (not . isSpace) columnTypeString)
+    return (columnName, columnType)
+
+convertToColumnType :: String -> ColumnType
+convertToColumnType ct
+  | "int" == map toLower ct = IntegerType
+  | "boolean" == map toLower ct = BoolType
+  | otherwise = error $ ct ++ "is an unknown column type"
+
+parseCreateTable :: String -> Either ErrorMessage ParsedStatement
+parseCreateTable input =
+  case runParser parseCreateTableStatement input of
+    Right (_, parsedStatement) -> Right parsedStatement
+    Left errMsg -> Left errMsg
+
+handleOptionalNumber :: String -> Parser (ColumnType, Maybe String)
+handleOptionalNumber "char" = do
+  size <- parseSize
+  return (StringType, size)
+handleOptionalNumber "varchar" = do
+  size <- parseSize
+  return (StringType, size)
+handleOptionalNumber other = return (convertToColumnType other, Nothing)
+
+-- Helper function to parse optional size
+parseSize :: Parser (Maybe String)
+parseSize = do
+  _ <- parseChar '('
+  sizeString <- parseName
+  let size = takeWhile isDigit sizeString
+  _ <- parseChar ')'
+  return $ Just size
+
+
+
+
