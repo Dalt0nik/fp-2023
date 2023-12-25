@@ -1,5 +1,30 @@
+{-# LANGUAGE OverloadedStrings #-}
 {-# OPTIONS_GHC -Wno-incomplete-patterns #-}
-module Main (main) where
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# HLINT ignore "Redundant return" #-}
+{-# HLINT ignore "Use withFile" #-}
+{-# OPTIONS_GHC -Wno-deprecations #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+
+import Web.Scotty
+import qualified Data.Yaml as Yaml
+import qualified Data.ByteString.Lazy as BS
+import Data.Text (Text, pack, unpack)
+import DataFrame-- (DataFrame, Column (..), ColumnType (..), Value (..), Row)
+import InMemoryTables (database, TableName)
+import Network.HTTP.Types (notFound404)
+import Data.Aeson ( ToJSON, FromJSON )
+import Data.ByteString (fromStrict)
+import qualified Lib3
+import Control.Alternative.Free
+import Control.Monad.Free
+import Lib2
+import System.Directory
+import Control.Monad.Cont
+import Data.Time
+import Control.Exception
+import Data.Text.Lazy as TL
+
 
 import Control.Monad.IO.Class (MonadIO (liftIO))
 import Control.Monad.Free (Free (..))
@@ -26,48 +51,48 @@ import GHC.Real (underflowError)
 import System.Directory
 import qualified Lib3
 import Data.ByteString (any)
+import Network.HTTP.Types.Status
 
-type Repl a = HaskelineT IO a
 
-final :: Repl ExitDecision
-final = do
-  liftIO $ putStrLn "Goodbye!"
-  return Exit
+--import Main (runExecuteIO)
 
-ini :: Repl ()
-ini = liftIO $ putStrLn "Welcome to select-manipulate database! Press [TAB] for auto completion."
 
-completer :: (Monad m) => WordCompleter m
-completer n = do
-  let names = [
-              "select", "*", "from", "show", "table",
-              "tables", "insert", "into", "values",
-              "set", "update", "delete"
-              ]
-  return $ Prelude.filter (L.isPrefixOf n) names
+-- instance FromJSON ColumnType
+instance ToJSON ColumnType
 
--- Evaluation : handle each line user inputs
-cmd :: String -> Repl ()
-cmd c = do
-  s <- terminalWidth <$> liftIO size
-  result <- liftIO $ cmd' s
+-- instance FromJSON Column
+instance ToJSON Column
+
+-- instance FromJSON DataFrame.Value
+
+instance ToJSON DataFrame.Value
+
+-- instance FromJSON DataFrame
+instance ToJSON DataFrame
+
+
+-- Convert DataFrame to YAML ByteString
+dataFrameToYaml :: DataFrame -> BS.ByteString
+dataFrameToYaml df = Data.ByteString.fromStrict $ Yaml.encode df
+
+
+getTableRoute :: TableName -> ActionM ()
+getTableRoute tableName = do
+  let maybeTable = lookup tableName database
+  case maybeTable of
+    Just table -> raw $ dataFrameToYaml table
+    Nothing -> status notFound404
+
+
+runExecuteIOEndpoint :: String -> IO (Either String DataFrame)
+runExecuteIOEndpoint query = do
+  result <- runExecuteIO $ Lib3.executeSql query
   case result of
-    Left err -> liftIO $ putStrLn $ "Error: " ++ err
-    Right table -> liftIO $ putStrLn table
-  where
-    terminalWidth :: (Integral n) => Maybe (Window n) -> n
-    terminalWidth = maybe 80 width
-    cmd' :: Integer -> IO (Either String String)
-    cmd' s = do
-      df <- runExecuteIO $ Lib3.executeSql c --here call api
-      return $ Lib1.renderDataFrameAsTable s <$> df
-
-main :: IO ()
-main =
-  evalRepl (const $ pure ">>> ") cmd [] Nothing Nothing (Word completer) ini final
+    Right df -> return $ Right df
+    Left errMsg -> return $ Left errMsg
 
 runExecuteIO :: Lib3.Execution r -> IO r
-runExecuteIO (Pure r) = return r
+runExecuteIO (Control.Monad.Free.Pure r) = return r
 runExecuteIO (Free step) = do
     next <- runStep step
     runExecuteIO next
@@ -78,18 +103,11 @@ runExecuteIO (Free step) = do
           tableResult <- runExecuteIO $ Lib3.showTable tableName
           return $ f tableResult
 
-        -- runStep (Lib3.ExecuteInsert statement f) = do --i think this is redundant
-        --   insertResult <- runExecuteIO $ Lib3.executeInsert statement
-        --   case insertResult of
-        --     Right df -> return $ f (Right df)
-        --     Left errMsg -> return $ f (Left errMsg)
-
         runStep (Lib3.ParseStatement input next) = do
           let parsedStatement = case Lib2.parseStatement input of
                 Right stmt -> stmt
                 Left err -> error ("Parsing error: " ++ err)  -- Errors don't work
           return $ next parsedStatement
-
 
         runStep (Lib3.ExecuteStatement statement f) = do
           executionResult <- runExecuteIO $ Lib3.executeStatement statement
@@ -104,11 +122,10 @@ runExecuteIO (Free step) = do
               hClose
               (\handle -> do
                   fileContent <- hGetContents handle
-                  evaluate (length fileContent)
+                  evaluate (Prelude.length fileContent)
                   return $ next $ Lib3.deserializeDataFrame fileContent
               )
           return contentResult
-
 
         runStep (Lib3.SaveTable (tableName, dataFrame) next) = do
           let filePath = "db/" ++ tableName ++ ".json"
@@ -118,11 +135,26 @@ runExecuteIO (Free step) = do
 
         runStep (Lib3.GetAllTables () f) = do
           tables <- getDirectoryContents "db"
-          case filter (`notElem` [".", ".."]) tables of
+          case Prelude.filter (`notElem` [".", ".."]) tables of
             [] -> return $ f (Left "no tables found")
             _ -> return $ f (Right tables)
 
-      
-
-
-
+-- Define the main application
+app :: ScottyM ()
+app = do
+  get "/tables/:name" $ do --http://localhost:3000/tables
+    tableName <- param "name"
+    getTableRoute tableName
+  post "/execute" $ do
+    requestBody <- body
+    case Yaml.decodeEither (BS.toStrict requestBody) of
+      Right (query :: String) -> do
+        result <- liftIO $ runExecuteIOEndpoint query
+        case result of
+          Right df -> raw $ dataFrameToYaml df
+          Left errMsg -> status badRequest400 >> text (TL.fromStrict $ Data.Text.pack errMsg)
+      Left yamlError ->
+        status badRequest400 >> text (TL.fromStrict $ Data.Text.pack $ "YAML parsing error: " ++ yamlError)
+-- Run the application on port 3000
+main :: IO ()
+main = scotty 3000 app

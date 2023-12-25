@@ -94,6 +94,62 @@ executables:
     - time
     - bytestring
     - directory
+  fp2023-sql-client:
+    main:                Main.hs
+    source-dirs:         client
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - fp2023
+    - pretty 
+    - extra
+    - repline
+    - terminal-size
+    - wreq
+    - aeson
+    - lens
+    - yaml
+    - bytestring
+    - http-client
+    - http-types
+    - free
+    - time
+    - directory
+    - filepath
+    - base 
+    - http-client-tls
+    - scotty
+    - text    
+  fp2023-sql-server:
+    main:                Main.hs
+    source-dirs:         server 
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - fp2023
+    - extra
+    - repline
+    - terminal-size
+    - Spock
+    - http-types
+    - text
+    - mtl
+    - aeson
+    - time
+    - free
+    - yaml
+    - filepath
+    - directory
+    - stm
+    - scotty
+    - text
+    - bytestring
+    - containers
+
 
 
 tests:
