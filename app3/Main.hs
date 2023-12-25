@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wno-incomplete-patterns #-}
 module Main (main) where
 
 import Control.Monad.IO.Class (MonadIO (liftIO))
@@ -58,7 +59,7 @@ cmd c = do
     terminalWidth = maybe 80 width
     cmd' :: Integer -> IO (Either String String)
     cmd' s = do
-      df <- runExecuteIO $ Lib3.executeSql c 
+      df <- runExecuteIO $ Lib3.executeSql c --here call api
       return $ Lib1.renderDataFrameAsTable s <$> df
 
 main :: IO ()
@@ -71,18 +72,17 @@ runExecuteIO (Free step) = do
     next <- runStep step
     runExecuteIO next
     where
-        -- probably you will want to extend the interpreter
         runStep :: Lib3.ExecutionAlgebra a -> IO a
         runStep (Lib3.GetCurrentTime next) = getCurrentTime >>= return . next
         runStep (Lib3.ShowTable tableName f) = do
           tableResult <- runExecuteIO $ Lib3.showTable tableName
           return $ f tableResult
 
-        runStep (Lib3.ExecuteInsert statement f) = do --i think this is redundant
-          insertResult <- runExecuteIO $ Lib3.executeInsert statement
-          case insertResult of
-            Right df -> return $ f (Right df)
-            Left errMsg -> return $ f (Left errMsg)
+        -- runStep (Lib3.ExecuteInsert statement f) = do --i think this is redundant
+        --   insertResult <- runExecuteIO $ Lib3.executeInsert statement
+        --   case insertResult of
+        --     Right df -> return $ f (Right df)
+        --     Left errMsg -> return $ f (Left errMsg)
 
         runStep (Lib3.ParseStatement input next) = do
           let parsedStatement = case Lib2.parseStatement input of

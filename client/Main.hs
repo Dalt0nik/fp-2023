@@ -4,11 +4,12 @@
 module Main (main) where
 
 import Network.Wreq
+    ( get, responseBody, responseStatus, statusCode )
 import Data.Aeson (FromJSON)
-import Control.Lens
+import Control.Lens ( (^.) )
 import Data.ByteString.Lazy (ByteString)
-import Data.ByteString ( fromStrict, toStrict )
-import DataFrame
+import Data.ByteString ( toStrict )
+import DataFrame ( ColumnType, Column, Value, DataFrame )
 import qualified Data.Yaml as Yaml
 
 instance FromJSON ColumnType
