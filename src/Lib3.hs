@@ -419,7 +419,12 @@ executeStatement (Lib2.SelectStatement columns tableNames maybeCondition maybeOr
     else
       if numberOfTables /= 1 then return (Left "only one table should be provided") else executeNoJoin combinedList maybeCondition columns isAggregationRequested
     
-    
+
+    let firstTableNameInResult = case result of
+          Right (SourceDataFrame columns _) -> fst (head columns)
+          Left _ -> ""
+
+    --traceShowM result
 
     case result of
       Right sourceDataFrame -> return $ Right $ mapSourceDataFrameToDataFrame sourceDataFrame
@@ -560,15 +565,8 @@ executeJoin tableDataList maybeCondition columns isAggregationRequested = do
             Nothing -> error "Invalid join condition"
 
     -- Fetch the columns to be selected from the join
-    let selectedColumnsTable1 = getColumns table1
-    let selectedColumnsTable2 = getColumns table2
-
-
     let selectedColumnsTable1WithTableName = getColumnsWithTableName table1Name table1
     let selectedColumnsTable2WithTableName = getColumnsWithTableName table2Name table2
-
-    let sourceTable1 = SourceDataFrame selectedColumnsTable1WithTableName (extractRows table1)
-    let sourceTable2 = SourceDataFrame selectedColumnsTable2WithTableName (extractRows table2)
   
 
     joinColumnIndexTable1 <- either (const (return 0)) return $ case findColumnIndex' selectedColumnsTable1WithTableName joinColumnNameTable1 of
@@ -579,11 +577,6 @@ executeJoin tableDataList maybeCondition columns isAggregationRequested = do
       Just index -> Right index
       Nothing -> Left "Column not found in table2"
 
-
-    -- let resultColumns = case columns of
-    --       Lib2.All -> selectedColumnsTable1 ++ selectedColumnsTable2
-    --       Lib2.SelectedColumns colNames ->
-    --         selectedColumnsTable1 ++ filter (\col -> Lib2.extractColumnName col `elem` map snd colNames) selectedColumnsTable2
     let (filteredColumnsTable1, filteredColumnsTable2) = case columns of
           Lib2.All -> (selectedColumnsTable1WithTableName, selectedColumnsTable2WithTableName)
           Lib2.SelectedColumns colNames ->
@@ -603,20 +596,19 @@ executeJoin tableDataList maybeCondition columns isAggregationRequested = do
           Lib2.All -> indicesTable1 ++ map (fmap (+ length indicesTable1)) indicesTable2
           Lib2.SelectedColumns _ -> map (\(tableName, col) -> case tableName of
                               t | t == table1Name -> findColumnIndex' selectedColumnsTable1WithTableName col
-                                | t == table2Name -> Just $ fromMaybe (error "Column not found") (fmap (+ length selectedColumnsTable1) (findColumnIndex' selectedColumnsTable2WithTableName col))
+                                | t == table2Name -> Just $ fromMaybe (error "Column not found") (fmap (+ length selectedColumnsTable1WithTableName) (findColumnIndex' selectedColumnsTable2WithTableName col))
                                 | otherwise -> error ("Unknown table name: " ++ t)
                             ) $ case columns of 
                                   Lib2.SelectedColumns col -> col
---traceShowM ("Indices of columns: " ++ show indecesOfColumns)
-
+    --traceShowM ("Indices of columns: " ++ show indecesOfColumns)
+    let allColumns = selectedColumnsTable1WithTableName ++ selectedColumnsTable2WithTableName
+    let filteredColumnsTable = map (\index -> maybe (error "Invalid index") (allColumns !!) index) indecesOfColumns
     let joinedRows = innerJoin indecesOfColumns joinColumnIndexTable1 joinColumnIndexTable2 table1 table2 maybeCondition
 
-    --let joinedRows = innerJoin indicesTable1 indicesTable2 joinColumnIndexTable1 joinColumnIndexTable2 table1 table2 maybeCondition
-
     -- Create a new DataFrame with selected columns and joined rows
-    --let resultDataFrame = DataFrame resultColumns joinedRows
-    let resultDataFrame = SourceDataFrame (filteredColumnsTable1++filteredColumnsTable2) joinedRows
 
+    let resultDataFrame = SourceDataFrame filteredColumnsTable joinedRows
+    traceShowM ("Result dataframe: " ++ show resultDataFrame)
     -- Perform aggregation if requested
     if isAggregationRequested
         then executeAggregation resultDataFrame joinedRows columns
