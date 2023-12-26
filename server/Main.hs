@@ -52,22 +52,16 @@ import System.Directory
 import qualified Lib3
 import Data.ByteString (any)
 import Network.HTTP.Types.Status
+import Data.IORef (IORef, newIORef, readIORef, writeIORef, atomicWriteIORef, modifyIORef', atomicModifyIORef')
+import System.IO.Unsafe (unsafePerformIO)
 
+import Control.Concurrent (threadDelay, forkIO)
+import Control.Concurrent.STM (TVar, newTVarIO, readTVarIO, atomically, writeTVar)
+import Control.Concurrent.STM.TVar (modifyTVar')
 
---import Main (runExecuteIO)
-
-
--- instance FromJSON ColumnType
 instance ToJSON ColumnType
-
--- instance FromJSON Column
 instance ToJSON Column
-
--- instance FromJSON DataFrame.Value
-
 instance ToJSON DataFrame.Value
-
--- instance FromJSON DataFrame
 instance ToJSON DataFrame
 
 
@@ -116,22 +110,15 @@ runExecuteIO (Free step) = do
             Left errMsg -> return $ f (Left errMsg)
 
         runStep (Lib3.LoadFile tableName next) = do
-          let filePath = "db/" ++ tableName ++ ".json"
-          contentResult <- bracket
-              (openFile filePath ReadMode)
-              hClose
-              (\handle -> do
-                  fileContent <- hGetContents handle
-                  evaluate (Prelude.length fileContent)
-                  return $ next $ Lib3.deserializeDataFrame fileContent
-              )
-          return contentResult
+          db <- readTVarIO inMemoryDb
+          case lookup tableName db of
+            Just dataFrame -> return $ next (Right dataFrame)
+            Nothing -> error ("Table not found: " ++ tableName)
 
         runStep (Lib3.SaveTable (tableName, dataFrame) next) = do
-          let filePath = "db/" ++ tableName ++ ".json"
-          let jsonStr = Lib3.serializeDataFrame dataFrame
-          Prelude.writeFile filePath jsonStr
+          atomically $ modifyTVar' inMemoryDb (\db -> (tableName, dataFrame) : Prelude.filter (\(name, _) -> name /= tableName) db)
           return (next ())
+        -- atomicModifyIORef' is strict version of atomicModifyIORef; atomicModifyIORef' is threadsafe version of ModifyIORef'
 
         runStep (Lib3.GetAllTables () f) = do
           tables <- getDirectoryContents "db"
@@ -139,7 +126,38 @@ runExecuteIO (Free step) = do
             [] -> return $ f (Left "no tables found")
             _ -> return $ f (Right tables)
 
--- Define the main application
+----------------------------------------------------------------------
+type InMemoryDb = [(TableName, DataFrame)]
+
+inMemoryDb :: TVar InMemoryDb
+inMemoryDb = unsafePerformIO (newTVarIO []) --it's a way to create a global mutable variable
+
+initDB :: IO ()
+initDB = do
+  
+  files <- listDirectory "db"
+  
+  tables <- forM files $ \fileName -> do
+    let tableName = Prelude.takeWhile (/= '.') fileName
+    let filePath = "db/" ++ fileName
+    contentResult <- bracket
+        (openFile filePath ReadMode)
+        hClose
+        (\handle -> do
+            fileContent <- hGetContents handle
+            evaluate (Prelude.length fileContent)
+            return $ either (const erroDf) id $ Lib3.deserializeDataFrame fileContent --erroDf
+        )
+    return (tableName, contentResult)
+  atomically $ writeTVar inMemoryDb tables
+  where
+  erroDf =
+    DataFrame
+      [ Column "Error occured" IntegerType
+      ]
+      []
+
+----------------------------------------------------------------------
 app :: ScottyM ()
 app = do
   get "/tables/:name" $ do --http://localhost:3000/tables
@@ -155,6 +173,20 @@ app = do
           Left errMsg -> status badRequest400 >> text (TL.fromStrict $ Data.Text.pack errMsg)
       Left yamlError ->
         status badRequest400 >> text (TL.fromStrict $ Data.Text.pack $ "YAML parsing error: " ++ yamlError)
--- Run the application on port 3000
+
+periodicSave :: IO ()
+periodicSave = do
+  forever $ do
+    threadDelay (5 * 1000000)  -- Delay for 10 seconds
+    db <- readTVarIO inMemoryDb
+    forM_ db $ \(tableName, dataFrame) -> do
+      let filePath = "db/" ++ tableName ++ ".json"
+      let jsonStr = Lib3.serializeDataFrame dataFrame
+      Prelude.writeFile filePath jsonStr
+
 main :: IO ()
-main = scotty 3000 app
+main = do
+  initDB
+    -- Start the periodicSave function in a separate thread
+  _ <- forkIO periodicSave -- returns thread id but we dont care about it
+  scotty 3000 app

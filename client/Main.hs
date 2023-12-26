@@ -40,6 +40,12 @@ import qualified Data.Text.Lazy.Encoding as TLE
 import qualified Data.Yaml as Yaml
 import DataFrame
 
+import Control.Exception
+
+data ExitNow = ExitNow deriving Show
+
+instance Exception ExitNow
+
 runExecuteIOFromServer :: String -> IO (Either String DataFrame)
 runExecuteIOFromServer query = do
     manager <- newManager tlsManagerSettings
@@ -65,13 +71,13 @@ runExecuteIOFromServer query = do
 
 type Repl a = HaskelineT IO a
 
-final :: Repl ExitDecision
+final :: Repl ExitDecision --The final function is not actually used in our setup.
 final = do
   liftIO $ putStrLn "Goodbye!"
   return Exit
 
 ini :: Repl ()
-ini = liftIO $ putStrLn "Welcome to X-Mas database! Press [TAB] for auto completion."
+ini = liftIO $ putStrLn "Welcome to X-Mas database! Press [TAB] for auto completion. Enter ':q' to exit"
 
 completer :: (Monad m) => WordCompleter m
 completer n = do
@@ -85,11 +91,14 @@ completer n = do
 -- Evaluation : handle each line user inputs
 cmd :: String -> Repl ()
 cmd userInput = do
-  s <- terminalWidth <$> liftIO size
-  result <- liftIO $ cmd' s
-  case result of
-    Left err -> liftIO $ putStrLn $ "Error: " ++ err
-    Right table -> liftIO $ putStrLn table
+  if userInput == ":q"
+    then liftIO $ throwIO ExitNow
+    else do
+      s <- terminalWidth <$> liftIO size
+      result <- liftIO $ cmd' s
+      case result of
+        Left err -> liftIO $ putStrLn $ "Error: " ++ err
+        Right table -> liftIO $ putStrLn table
   where
     terminalWidth :: (Integral n) => Maybe (Window n) -> n
     terminalWidth = maybe 80 width
@@ -101,7 +110,7 @@ cmd userInput = do
         Left errMsg -> return $ Left errMsg
 
 main :: IO ()
-main =
-  evalRepl (const $ pure ">>> ") cmd [] Nothing Nothing (Word completer) ini final
+main = catch (evalRepl (const $ pure ">>> ") cmd [] Nothing Nothing (Word completer) ini final) 
+              (\ExitNow -> putStrLn "Ho-ho-ho, goodbye, son!")
 
 
