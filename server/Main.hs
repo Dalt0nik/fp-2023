@@ -52,7 +52,7 @@ import System.Directory
 import qualified Lib3
 import Data.ByteString (any)
 import Network.HTTP.Types.Status
-import Data.IORef (IORef, newIORef, readIORef, writeIORef, atomicWriteIORef, modifyIORef')
+import Data.IORef (IORef, newIORef, readIORef, writeIORef, atomicWriteIORef, modifyIORef', atomicModifyIORef')
 import System.IO.Unsafe (unsafePerformIO)
 
 import Control.Concurrent (threadDelay, forkIO)
@@ -115,8 +115,9 @@ runExecuteIO (Free step) = do
             Nothing -> error ("Table not found: " ++ tableName)
 
         runStep (Lib3.SaveTable (tableName, dataFrame) next) = do
-          modifyIORef' inMemoryDb (\db -> (tableName, dataFrame) : Prelude.filter (\(name, _) -> name /= tableName) db)
+          atomicModifyIORef' inMemoryDb $ \db -> ((tableName, dataFrame) : Prelude.filter (\(name, _) -> name /= tableName) db, ())
           return (next ())
+        -- atomicModifyIORef' is strict version of atomicModifyIORef; atomicModifyIORef' is threadsafe version of ModifyIORef'
 
         runStep (Lib3.GetAllTables () f) = do
           tables <- getDirectoryContents "db"
@@ -132,7 +133,7 @@ inMemoryDb = unsafePerformIO (newIORef []) --it's a way to create a global mutab
 
 initDB :: IO ()
 initDB = do
-  -- Get a list of all files in the "/db" directory
+  
   files <- listDirectory "db"
   
   tables <- forM files $ \fileName -> do
@@ -155,11 +156,7 @@ initDB = do
       ]
       []
 
-
-
-
 ----------------------------------------------------------------------
--- Define the main application
 app :: ScottyM ()
 app = do
   get "/tables/:name" $ do --http://localhost:3000/tables
@@ -175,12 +172,11 @@ app = do
           Left errMsg -> status badRequest400 >> text (TL.fromStrict $ Data.Text.pack errMsg)
       Left yamlError ->
         status badRequest400 >> text (TL.fromStrict $ Data.Text.pack $ "YAML parsing error: " ++ yamlError)
--- Run the application on port 3000
 
 periodicSave :: IO ()
 periodicSave = do
   forever $ do
-    threadDelay (10 * 1000000)  -- Delay for 30 seconds
+    threadDelay (10 * 1000000)  -- Delay for 10 seconds
     db <- readIORef inMemoryDb
     forM_ db $ \(tableName, dataFrame) -> do
       let filePath = "db/" ++ tableName ++ ".json"
@@ -191,5 +187,5 @@ main :: IO ()
 main = do
   initDB
     -- Start the periodicSave function in a separate thread
-  _ <- forkIO periodicSave
+  _ <- forkIO periodicSave -- returns thread id but we dont care about it
   scotty 3000 app
