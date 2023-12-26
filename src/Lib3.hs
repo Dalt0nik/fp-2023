@@ -420,7 +420,10 @@ executeStatement (Lib2.SelectStatement columns tableNames maybeCondition maybeOr
       if numberOfTables /= 1 then return (Left "only one table should be provided") else executeNoJoin combinedList maybeCondition columns isAggregationRequested
     
     
-    return result
+
+    case result of
+      Right sourceDataFrame -> return $ Right $ mapSourceDataFrameToDataFrame sourceDataFrame
+      Left errorMessage -> return $ Left errorMessage
 
 executeStatement Lib2.ShowTablesStatement = return $ Right $ DataFrame [Column "TABLE NAME" StringType] (map (\tableName -> [StringValue tableName]) (Lib2.showTables database))
 executeStatement (Lib2.ShowTableStatement tableName) =
@@ -750,3 +753,6 @@ filterRows' columns (SourceDataFrame _ rows) condition = case condition of
 
 findColumnIndex' :: [(TableName, Column)] -> ColumnName -> Maybe Int
 findColumnIndex' columns columnName = elemIndex columnName (map (Lib2.extractColumnName . snd) columns)
+
+mapSourceDataFrameToDataFrame :: SourceDataFrame -> DataFrame
+mapSourceDataFrameToDataFrame (SourceDataFrame columns rows) = DataFrame (map snd columns) rows
