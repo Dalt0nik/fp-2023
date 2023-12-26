@@ -146,12 +146,12 @@ initDB = do
         (\handle -> do
             fileContent <- hGetContents handle
             evaluate (Prelude.length fileContent)
-            return $ either (const defaultDataFrame) id $ Lib3.deserializeDataFrame fileContent
+            return $ either (const erroDf) id $ Lib3.deserializeDataFrame fileContent --erroDf
         )
     return (tableName, contentResult)
   atomically $ writeTVar inMemoryDb tables
   where
-  defaultDataFrame =
+  erroDf =
     DataFrame
       [ Column "Error occured" IntegerType
       ]
@@ -177,7 +177,7 @@ app = do
 periodicSave :: IO ()
 periodicSave = do
   forever $ do
-    threadDelay (10 * 1000000)  -- Delay for 10 seconds
+    threadDelay (5 * 1000000)  -- Delay for 10 seconds
     db <- readTVarIO inMemoryDb
     forM_ db $ \(tableName, dataFrame) -> do
       let filePath = "db/" ++ tableName ++ ".json"
