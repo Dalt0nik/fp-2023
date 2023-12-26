@@ -136,11 +136,17 @@ initDB = do
   files <- listDirectory "db"
   
   tables <- forM files $ \fileName -> do
-    content <- readFile $ "db/" ++ fileName
     let tableName = Prelude.takeWhile (/= '.') fileName
-    let eitherDataFrame = Lib3.deserializeDataFrame content
-    let dataFrame = either (const defaultDataFrame) id eitherDataFrame
-    return (tableName, dataFrame)
+    let filePath = "db/" ++ fileName
+    contentResult <- bracket
+        (openFile filePath ReadMode)
+        hClose
+        (\handle -> do
+            fileContent <- hGetContents handle
+            evaluate (Prelude.length fileContent)
+            return $ either (const defaultDataFrame) id $ Lib3.deserializeDataFrame fileContent
+        )
+    return (tableName, contentResult)
   atomicWriteIORef inMemoryDb tables
   where
   defaultDataFrame =
