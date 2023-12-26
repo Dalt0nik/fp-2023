@@ -52,22 +52,14 @@ import System.Directory
 import qualified Lib3
 import Data.ByteString (any)
 import Network.HTTP.Types.Status
+import Data.IORef (IORef, newIORef, readIORef, writeIORef, atomicWriteIORef, modifyIORef')
+import System.IO.Unsafe (unsafePerformIO)
 
 
---import Main (runExecuteIO)
 
-
--- instance FromJSON ColumnType
 instance ToJSON ColumnType
-
--- instance FromJSON Column
 instance ToJSON Column
-
--- instance FromJSON DataFrame.Value
-
 instance ToJSON DataFrame.Value
-
--- instance FromJSON DataFrame
 instance ToJSON DataFrame
 
 
@@ -116,21 +108,13 @@ runExecuteIO (Free step) = do
             Left errMsg -> return $ f (Left errMsg)
 
         runStep (Lib3.LoadFile tableName next) = do
-          let filePath = "db/" ++ tableName ++ ".json"
-          contentResult <- bracket
-              (openFile filePath ReadMode)
-              hClose
-              (\handle -> do
-                  fileContent <- hGetContents handle
-                  evaluate (Prelude.length fileContent)
-                  return $ next $ Lib3.deserializeDataFrame fileContent
-              )
-          return contentResult
+          db <- readIORef inMemoryDb
+          case lookup tableName db of
+            Just dataFrame -> return $ next (Right dataFrame)
+            Nothing -> error ("Table not found: " ++ tableName)
 
         runStep (Lib3.SaveTable (tableName, dataFrame) next) = do
-          let filePath = "db/" ++ tableName ++ ".json"
-          let jsonStr = Lib3.serializeDataFrame dataFrame
-          Prelude.writeFile filePath jsonStr
+          modifyIORef' inMemoryDb (\db -> (tableName, dataFrame) : Prelude.filter (\(name, _) -> name /= tableName) db)
           return (next ())
 
         runStep (Lib3.GetAllTables () f) = do
@@ -139,6 +123,32 @@ runExecuteIO (Free step) = do
             [] -> return $ f (Left "no tables found")
             _ -> return $ f (Right tables)
 
+----------------------------------------------------------------------
+type InMemoryDb = [(TableName, DataFrame)]
+
+inMemoryDb :: IORef InMemoryDb
+inMemoryDb = unsafePerformIO (newIORef []) --it's a way to create a global mutable variable
+
+initDB :: IO ()
+initDB = do
+  -- Get a list of all files in the "/db" directory
+  files <- listDirectory "db"
+  
+  tables <- forM files $ \fileName -> do
+    content <- readFile $ "db/" ++ fileName
+    let tableName = Prelude.takeWhile (/= '.') fileName
+    let eitherDataFrame = Lib3.deserializeDataFrame content
+    let dataFrame = either (const defaultDataFrame) id eitherDataFrame
+    return (tableName, dataFrame)
+  atomicWriteIORef inMemoryDb tables
+  where
+  defaultDataFrame =
+    DataFrame
+      [ Column "Error occured" IntegerType
+      ]
+      []
+
+----------------------------------------------------------------------
 -- Define the main application
 app :: ScottyM ()
 app = do
@@ -157,4 +167,7 @@ app = do
         status badRequest400 >> text (TL.fromStrict $ Data.Text.pack $ "YAML parsing error: " ++ yamlError)
 -- Run the application on port 3000
 main :: IO ()
-main = scotty 3000 app
+
+main = do
+  initDB
+  scotty 3000 app
