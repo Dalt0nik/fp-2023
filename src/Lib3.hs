@@ -34,6 +34,7 @@ import Lib2 (ParsedStatement(InsertStatement))
 import Data.Maybe
 import Debug.Trace
 import System.Directory
+import GHC.Generics
 
 
 
@@ -382,6 +383,9 @@ deserializeDataFrame jsonStr =
 
 --EXECUTE SELECT FROM LIB2
 
+data SourceDataFrame = SourceDataFrame [(TableName, Column)] [Row]
+  deriving (Show, Eq, Generic)
+
  -- Executes a parsed statement. Produces a DataFrame. Uses
 -- InMemoryTables.databases a source of data.
 -- Execute a SELECT statement
@@ -553,6 +557,10 @@ executeJoin tableDataList maybeCondition columns isAggregationRequested = do
     let selectedColumnsTable1WithTableName = getColumnsWithTableName table1Name table1
     let selectedColumnsTable2WithTableName = getColumnsWithTableName table2Name table2
 
+    let sourceTable1 = SourceDataFrame selectedColumnsTable1WithTableName (extractRows table1)
+    let sourceTable2 = SourceDataFrame selectedColumnsTable2WithTableName (extractRows table2)
+  
+
     joinColumnIndexTable1 <- either (const (return 0)) return $ case findColumnIndex selectedColumnsTable1 joinColumnNameTable1 of
       Just index -> Right index
       Nothing -> Left "Column not found in table1"
@@ -692,3 +700,5 @@ executeSelection table filteredRows columns = do
 
 
 
+extractRows :: DataFrame -> [Row]
+extractRows (DataFrame _ rows) = rows
