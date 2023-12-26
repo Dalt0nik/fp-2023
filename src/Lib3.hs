@@ -467,8 +467,8 @@ sumIntValues values =
     let intValues = [i | IntegerValue i <- values]
     in if null intValues then Nothing else Just (sum intValues)
 
-createAggregationColumns :: [(Lib2.AggregateFunction, String)] -> [Column]
-createAggregationColumns funcs = map (\(aggFunc, colName) -> Column (show aggFunc ++ "(" ++ colName ++ ")") IntegerType) funcs
+createAggregationColumns :: [(Lib2.AggregateFunction, String)] -> [(TableName, Column)]
+createAggregationColumns funcs = map (\(aggFunc, colName) -> ("", Column (show aggFunc ++ "(" ++ colName ++ ")") IntegerType)) funcs
 
 
 fetchTableFromDatabase :: TableName -> Either ErrorMessage (TableName, DataFrame)
@@ -479,15 +479,18 @@ fetchTableFromDatabase tableName = case lookup (map toLower tableName) database 
 getColumns :: DataFrame -> [Column]
 getColumns (DataFrame columns _) = columns
 
+getColumnsWithSource :: SourceDataFrame -> [(TableName, Column)]
+getColumnsWithSource (SourceDataFrame columns _) = columns
+
 getColumnsWithTableName :: TableName -> DataFrame -> [(TableName, Column)]
 getColumnsWithTableName tableName (DataFrame columns _) = map (\col -> (tableName, col)) columns
 
-findColumnIndex :: [Column] -> ColumnName -> Maybe Int
-findColumnIndex columns columnName = elemIndex columnName (map Lib2.extractColumnName columns)
+findColumnIndex :: [(TableName, Column)] -> ColumnName -> Maybe Int
+findColumnIndex columns columnName = elemIndex columnName (map (Lib2.extractColumnName . snd) columns)
 
 
-filterRows :: [Column] -> DataFrame -> Maybe Lib2.Condition -> [Row]
-filterRows columns (DataFrame _ rows) condition = case condition of
+filterRows :: [(TableName, Column)] -> SourceDataFrame -> Maybe Lib2.Condition -> [Row]
+filterRows columns (SourceDataFrame _ rows) condition = case condition of
     Just (Lib2.Comparison whereStatement []) -> filter (evaluateWhereStatement whereStatement) rows
     Just (Lib2.Comparison whereStatement logicalOps) -> filter (evaluateWithLogicalOps whereStatement logicalOps) rows
     Nothing -> rows  -- When condition is Nothing, return all rows
@@ -534,7 +537,7 @@ involvesMultipleTablesInWhere (Lib2.Where (tableName1, _) _ (Left (tableName2, _
 involvesMultipleTablesInWhere _ = False
 
 -- Function to execute an inner join
-executeJoin :: [(TableName, DataFrame)] -> Maybe Lib2.Condition -> Lib2.Columns -> Bool -> Execution (Either ErrorMessage DataFrame)
+executeJoin :: [(TableName, DataFrame)] -> Maybe Lib2.Condition -> Lib2.Columns -> Bool -> Execution (Either ErrorMessage SourceDataFrame)
 executeJoin tableDataList maybeCondition columns isAggregationRequested = do
     -- Extract tables and condition
     let (table1Name, table1) = head tableDataList
@@ -554,6 +557,7 @@ executeJoin tableDataList maybeCondition columns isAggregationRequested = do
     let selectedColumnsTable1 = getColumns table1
     let selectedColumnsTable2 = getColumns table2
 
+
     let selectedColumnsTable1WithTableName = getColumnsWithTableName table1Name table1
     let selectedColumnsTable2WithTableName = getColumnsWithTableName table2Name table2
 
@@ -561,11 +565,11 @@ executeJoin tableDataList maybeCondition columns isAggregationRequested = do
     let sourceTable2 = SourceDataFrame selectedColumnsTable2WithTableName (extractRows table2)
   
 
-    joinColumnIndexTable1 <- either (const (return 0)) return $ case findColumnIndex selectedColumnsTable1 joinColumnNameTable1 of
+    joinColumnIndexTable1 <- either (const (return 0)) return $ case findColumnIndex selectedColumnsTable1WithTableName joinColumnNameTable1 of
       Just index -> Right index
       Nothing -> Left "Column not found in table1"
 
-    joinColumnIndexTable2 <- either (const (return 0)) return $ case findColumnIndex selectedColumnsTable2 joinColumnNameTable2 of
+    joinColumnIndexTable2 <- either (const (return 0)) return $ case findColumnIndex selectedColumnsTable2WithTableName joinColumnNameTable2 of
       Just index -> Right index
       Nothing -> Left "Column not found in table2"
 
@@ -586,14 +590,14 @@ executeJoin tableDataList maybeCondition columns isAggregationRequested = do
               filteredColumnsTable2 = map snd filteredColumnsTable2WithTableName  
             in (filteredColumnsTable1, filteredColumnsTable2)
     
-    let indicesTable1 = map (\col -> findColumnIndex selectedColumnsTable1 (Lib2.extractColumnName col)) filteredColumnsTable1
-    let indicesTable2 = map (\col -> findColumnIndex selectedColumnsTable2 (Lib2.extractColumnName col)) filteredColumnsTable2
+    let indicesTable1 = map (\col -> findColumnIndex selectedColumnsTable1WithTableName (Lib2.extractColumnName col)) filteredColumnsTable1
+    let indicesTable2 = map (\col -> findColumnIndex selectedColumnsTable2WithTableName (Lib2.extractColumnName col)) filteredColumnsTable2
 
     let indecesOfColumns = case columns of
           Lib2.All -> indicesTable1 ++ map (fmap (+ length indicesTable1)) indicesTable2
           Lib2.SelectedColumns _ -> map (\(tableName, col) -> case tableName of
-                              t | t == table1Name -> findColumnIndex selectedColumnsTable1 col
-                                | t == table2Name -> Just $ fromMaybe (error "Column not found") (fmap (+ length selectedColumnsTable1) (findColumnIndex selectedColumnsTable2 col))
+                              t | t == table1Name -> findColumnIndex selectedColumnsTable1WithTableName col
+                                | t == table2Name -> Just $ fromMaybe (error "Column not found") (fmap (+ length selectedColumnsTable1) (findColumnIndex selectedColumnsTable2WithTableName col))
                                 | otherwise -> error ("Unknown table name: " ++ t)
                             ) $ case columns of 
                                   Lib2.SelectedColumns col -> col
@@ -605,7 +609,7 @@ executeJoin tableDataList maybeCondition columns isAggregationRequested = do
 
     -- Create a new DataFrame with selected columns and joined rows
     --let resultDataFrame = DataFrame resultColumns joinedRows
-    let resultDataFrame = DataFrame (filteredColumnsTable1++filteredColumnsTable2) joinedRows
+    let resultDataFrame = SourceDataFrame (filteredColumnsTable1++filteredColumnsTable2) joinedRows
 
     -- Perform aggregation if requested
     if isAggregationRequested
@@ -662,13 +666,13 @@ innerJoin indecesOfColumns joinColumnIndexTable1 joinColumnIndexTable2 table1 ta
       in selectedValues
 
 -- Function to execute selection without join
-executeNoJoin :: [(TableName, DataFrame)] -> Maybe Lib2.Condition -> Lib2.Columns -> Bool -> Execution (Either ErrorMessage DataFrame)
+executeNoJoin :: [(TableName, SourceDataFrame)] -> Maybe Lib2.Condition -> Lib2.Columns -> Bool -> Execution (Either ErrorMessage SourceDataFrame)
 executeNoJoin tableDataList maybeCondition columns isAggregationRequested = do
   -- Fetch the specified table
   let (tableName, table) = head tableDataList
 
   -- Filter rows based on the condition
-  let filteredRows = filterRows (getColumns table) table maybeCondition
+  let filteredRows = filterRows (getColumnsWithSource table) table maybeCondition
 
   -- Perform aggregation if requested
   if isAggregationRequested
@@ -676,29 +680,34 @@ executeNoJoin tableDataList maybeCondition columns isAggregationRequested = do
       else executeSelection table filteredRows columns
 
 
-executeAggregation :: DataFrame -> [Row] -> Lib2.Columns -> Execution (Either ErrorMessage DataFrame)
+executeAggregation :: SourceDataFrame -> [Row] -> Lib2.Columns -> Execution (Either ErrorMessage SourceDataFrame)
 executeAggregation table filteredRows columns = do
   let aggregationFunctions = case columns of
           Lib2.Aggregation funcs -> funcs
           _ -> []
 
-  let resultRow = map (\(aggFunc, colName) -> executeAggregationFunction aggFunc (findColumnIndex (getColumns table) colName) filteredRows) aggregationFunctions
-  return $ Right $ DataFrame (createAggregationColumns aggregationFunctions) [resultRow]
+  let resultRow = map (\(aggFunc, colName) -> executeAggregationFunction aggFunc (findColumnIndex (getColumnsWithSource table) colName) filteredRows) aggregationFunctions
+  let resultColumns = createAggregationColumns aggregationFunctions
 
-executeSelection :: DataFrame -> [Row] -> Lib2.Columns -> Execution (Either ErrorMessage DataFrame)
+  return $ Right $ SourceDataFrame [(tableName, column) | (tableName, column) <- resultColumns] [resultRow]
+
+executeSelection :: SourceDataFrame -> [Row] -> Lib2.Columns -> Execution (Either ErrorMessage SourceDataFrame)
 executeSelection table filteredRows columns = do
     let selectedColumnNames = case columns of
-            Lib2.All -> map Lib2.extractColumnName (getColumns table)
+            Lib2.All -> map extractColumnName' (getColumnsWithSource table)
             Lib2.SelectedColumns colNames -> map snd colNames
-    let selectedColumnIndexes = mapMaybe (\colName -> findColumnIndex (getColumns table) colName) selectedColumnNames
+    let selectedColumnIndexes = mapMaybe (\colName -> findColumnIndex (getColumnsWithSource table) colName) selectedColumnNames
 
-    let selectedColumns = map (\i -> (getColumns table) !! i) selectedColumnIndexes
+    let selectedColumns = map (\i -> (getColumnsWithSource table) !! i) selectedColumnIndexes
 
     let selectedRows = map (\row -> map (\i -> (row !! i)) selectedColumnIndexes) filteredRows
 
-    return $ Right $ DataFrame selectedColumns selectedRows
+    return $ Right $ SourceDataFrame selectedColumns selectedRows
 
 
 
 extractRows :: DataFrame -> [Row]
 extractRows (DataFrame _ rows) = rows
+
+extractColumnName' :: (TableName, Column) -> String
+extractColumnName' (tableName, Column name _) = name
