@@ -56,7 +56,8 @@ import Data.IORef (IORef, newIORef, readIORef, writeIORef, atomicWriteIORef, mod
 import System.IO.Unsafe (unsafePerformIO)
 
 import Control.Concurrent (threadDelay, forkIO)
-
+import Control.Concurrent.STM (TVar, newTVarIO, readTVarIO, atomically, writeTVar)
+import Control.Concurrent.STM.TVar (modifyTVar')
 
 instance ToJSON ColumnType
 instance ToJSON Column
@@ -109,13 +110,13 @@ runExecuteIO (Free step) = do
             Left errMsg -> return $ f (Left errMsg)
 
         runStep (Lib3.LoadFile tableName next) = do
-          db <- readIORef inMemoryDb
+          db <- readTVarIO inMemoryDb
           case lookup tableName db of
             Just dataFrame -> return $ next (Right dataFrame)
             Nothing -> error ("Table not found: " ++ tableName)
 
         runStep (Lib3.SaveTable (tableName, dataFrame) next) = do
-          atomicModifyIORef' inMemoryDb $ \db -> ((tableName, dataFrame) : Prelude.filter (\(name, _) -> name /= tableName) db, ())
+          atomically $ modifyTVar' inMemoryDb (\db -> (tableName, dataFrame) : Prelude.filter (\(name, _) -> name /= tableName) db)
           return (next ())
         -- atomicModifyIORef' is strict version of atomicModifyIORef; atomicModifyIORef' is threadsafe version of ModifyIORef'
 
@@ -128,8 +129,8 @@ runExecuteIO (Free step) = do
 ----------------------------------------------------------------------
 type InMemoryDb = [(TableName, DataFrame)]
 
-inMemoryDb :: IORef InMemoryDb
-inMemoryDb = unsafePerformIO (newIORef []) --it's a way to create a global mutable variable
+inMemoryDb :: TVar InMemoryDb
+inMemoryDb = unsafePerformIO (newTVarIO []) --it's a way to create a global mutable variable
 
 initDB :: IO ()
 initDB = do
@@ -148,7 +149,7 @@ initDB = do
             return $ either (const defaultDataFrame) id $ Lib3.deserializeDataFrame fileContent
         )
     return (tableName, contentResult)
-  atomicWriteIORef inMemoryDb tables
+  atomically $ writeTVar inMemoryDb tables
   where
   defaultDataFrame =
     DataFrame
@@ -177,7 +178,7 @@ periodicSave :: IO ()
 periodicSave = do
   forever $ do
     threadDelay (10 * 1000000)  -- Delay for 10 seconds
-    db <- readIORef inMemoryDb
+    db <- readTVarIO inMemoryDb
     forM_ db $ \(tableName, dataFrame) -> do
       let filePath = "db/" ++ tableName ++ ".json"
       let jsonStr = Lib3.serializeDataFrame dataFrame
