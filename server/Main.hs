@@ -55,6 +55,7 @@ import Network.HTTP.Types.Status
 import Data.IORef (IORef, newIORef, readIORef, writeIORef, atomicWriteIORef, modifyIORef')
 import System.IO.Unsafe (unsafePerformIO)
 
+import Control.Concurrent (threadDelay, forkIO)
 
 
 instance ToJSON ColumnType
@@ -148,6 +149,9 @@ initDB = do
       ]
       []
 
+
+
+
 ----------------------------------------------------------------------
 -- Define the main application
 app :: ScottyM ()
@@ -166,8 +170,20 @@ app = do
       Left yamlError ->
         status badRequest400 >> text (TL.fromStrict $ Data.Text.pack $ "YAML parsing error: " ++ yamlError)
 -- Run the application on port 3000
-main :: IO ()
 
+periodicSave :: IO ()
+periodicSave = do
+  forever $ do
+    threadDelay (10 * 1000000)  -- Delay for 30 seconds
+    db <- readIORef inMemoryDb
+    forM_ db $ \(tableName, dataFrame) -> do
+      let filePath = "db/" ++ tableName ++ ".json"
+      let jsonStr = Lib3.serializeDataFrame dataFrame
+      Prelude.writeFile filePath jsonStr
+
+main :: IO ()
 main = do
   initDB
+    -- Start the periodicSave function in a separate thread
+  _ <- forkIO periodicSave
   scotty 3000 app
