@@ -414,10 +414,13 @@ executeStatement (Lib2.SelectStatement columns tableNames maybeCondition maybeOr
           _ -> False
 
     -- Perform inner join if requested
-    if isJoinRequested then
+    result <- if isJoinRequested then
       if numberOfTables == 2 then executeJoin combinedList maybeCondition columns isAggregationRequested else return $ Left "only two tables can be joined"
     else
       if numberOfTables /= 1 then return (Left "only one table should be provided") else executeNoJoin combinedList maybeCondition columns isAggregationRequested
+    
+    
+    return result
 
 executeStatement Lib2.ShowTablesStatement = return $ Right $ DataFrame [Column "TABLE NAME" StringType] (map (\tableName -> [StringValue tableName]) (Lib2.showTables database))
 executeStatement (Lib2.ShowTableStatement tableName) =
@@ -666,10 +669,12 @@ innerJoin indecesOfColumns joinColumnIndexTable1 joinColumnIndexTable2 table1 ta
       in selectedValues
 
 -- Function to execute selection without join
-executeNoJoin :: [(TableName, SourceDataFrame)] -> Maybe Lib2.Condition -> Lib2.Columns -> Bool -> Execution (Either ErrorMessage SourceDataFrame)
+executeNoJoin :: [(TableName, DataFrame)] -> Maybe Lib2.Condition -> Lib2.Columns -> Bool -> Execution (Either ErrorMessage SourceDataFrame)
 executeNoJoin tableDataList maybeCondition columns isAggregationRequested = do
   -- Fetch the specified table
-  let (tableName, table) = head tableDataList
+  let (tableName, wrongTable) = head tableDataList
+  let selectedColumnsWithTableName = getColumnsWithTableName tableName wrongTable
+  let table = SourceDataFrame selectedColumnsWithTableName (extractRows wrongTable)
 
   -- Filter rows based on the condition
   let filteredRows = filterRows' (getColumnsWithSource table) table maybeCondition
