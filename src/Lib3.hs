@@ -485,12 +485,12 @@ getColumnsWithSource (SourceDataFrame columns _) = columns
 getColumnsWithTableName :: TableName -> DataFrame -> [(TableName, Column)]
 getColumnsWithTableName tableName (DataFrame columns _) = map (\col -> (tableName, col)) columns
 
-findColumnIndex :: [(TableName, Column)] -> ColumnName -> Maybe Int
-findColumnIndex columns columnName = elemIndex columnName (map (Lib2.extractColumnName . snd) columns)
+findColumnIndex :: [Column] -> ColumnName -> Maybe Int
+findColumnIndex columns columnName = elemIndex columnName (map Lib2.extractColumnName columns)
 
 
-filterRows :: [(TableName, Column)] -> SourceDataFrame -> Maybe Lib2.Condition -> [Row]
-filterRows columns (SourceDataFrame _ rows) condition = case condition of
+filterRows :: [Column] -> DataFrame -> Maybe Lib2.Condition -> [Row]
+filterRows columns (DataFrame _ rows) condition = case condition of
     Just (Lib2.Comparison whereStatement []) -> filter (evaluateWhereStatement whereStatement) rows
     Just (Lib2.Comparison whereStatement logicalOps) -> filter (evaluateWithLogicalOps whereStatement logicalOps) rows
     Nothing -> rows  -- When condition is Nothing, return all rows
@@ -565,11 +565,11 @@ executeJoin tableDataList maybeCondition columns isAggregationRequested = do
     let sourceTable2 = SourceDataFrame selectedColumnsTable2WithTableName (extractRows table2)
   
 
-    joinColumnIndexTable1 <- either (const (return 0)) return $ case findColumnIndex selectedColumnsTable1WithTableName joinColumnNameTable1 of
+    joinColumnIndexTable1 <- either (const (return 0)) return $ case findColumnIndex' selectedColumnsTable1WithTableName joinColumnNameTable1 of
       Just index -> Right index
       Nothing -> Left "Column not found in table1"
 
-    joinColumnIndexTable2 <- either (const (return 0)) return $ case findColumnIndex selectedColumnsTable2WithTableName joinColumnNameTable2 of
+    joinColumnIndexTable2 <- either (const (return 0)) return $ case findColumnIndex' selectedColumnsTable2WithTableName joinColumnNameTable2 of
       Just index -> Right index
       Nothing -> Left "Column not found in table2"
 
@@ -579,7 +579,7 @@ executeJoin tableDataList maybeCondition columns isAggregationRequested = do
     --       Lib2.SelectedColumns colNames ->
     --         selectedColumnsTable1 ++ filter (\col -> Lib2.extractColumnName col `elem` map snd colNames) selectedColumnsTable2
     let (filteredColumnsTable1, filteredColumnsTable2) = case columns of
-          Lib2.All -> (selectedColumnsTable1, selectedColumnsTable2)
+          Lib2.All -> (selectedColumnsTable1WithTableName, selectedColumnsTable2WithTableName)
           Lib2.SelectedColumns colNames ->
             let 
               filterCondition (tableName, col) = 
@@ -588,16 +588,16 @@ executeJoin tableDataList maybeCondition columns isAggregationRequested = do
               filteredColumnsTable2WithTableName = filter (filterCondition . (\(table, col) -> (table, Lib2.extractColumnName col))) selectedColumnsTable2WithTableName
               filteredColumnsTable1 = map snd filteredColumnsTable1WithTableName  
               filteredColumnsTable2 = map snd filteredColumnsTable2WithTableName  
-            in (filteredColumnsTable1, filteredColumnsTable2)
+            in (filteredColumnsTable1WithTableName, filteredColumnsTable2WithTableName)
     
-    let indicesTable1 = map (\col -> findColumnIndex selectedColumnsTable1WithTableName (Lib2.extractColumnName col)) filteredColumnsTable1
-    let indicesTable2 = map (\col -> findColumnIndex selectedColumnsTable2WithTableName (Lib2.extractColumnName col)) filteredColumnsTable2
+    let indicesTable1 = map (\(tableName, col) -> findColumnIndex' (getColumnsWithTableName tableName table1) (Lib2.extractColumnName col)) filteredColumnsTable1
+    let indicesTable2 = map (\(tableName, col) -> findColumnIndex' (getColumnsWithTableName tableName table2) (Lib2.extractColumnName col)) filteredColumnsTable2
 
     let indecesOfColumns = case columns of
           Lib2.All -> indicesTable1 ++ map (fmap (+ length indicesTable1)) indicesTable2
           Lib2.SelectedColumns _ -> map (\(tableName, col) -> case tableName of
-                              t | t == table1Name -> findColumnIndex selectedColumnsTable1WithTableName col
-                                | t == table2Name -> Just $ fromMaybe (error "Column not found") (fmap (+ length selectedColumnsTable1) (findColumnIndex selectedColumnsTable2WithTableName col))
+                              t | t == table1Name -> findColumnIndex' selectedColumnsTable1WithTableName col
+                                | t == table2Name -> Just $ fromMaybe (error "Column not found") (fmap (+ length selectedColumnsTable1) (findColumnIndex' selectedColumnsTable2WithTableName col))
                                 | otherwise -> error ("Unknown table name: " ++ t)
                             ) $ case columns of 
                                   Lib2.SelectedColumns col -> col
@@ -672,7 +672,7 @@ executeNoJoin tableDataList maybeCondition columns isAggregationRequested = do
   let (tableName, table) = head tableDataList
 
   -- Filter rows based on the condition
-  let filteredRows = filterRows (getColumnsWithSource table) table maybeCondition
+  let filteredRows = filterRows' (getColumnsWithSource table) table maybeCondition
 
   -- Perform aggregation if requested
   if isAggregationRequested
@@ -686,7 +686,7 @@ executeAggregation table filteredRows columns = do
           Lib2.Aggregation funcs -> funcs
           _ -> []
 
-  let resultRow = map (\(aggFunc, colName) -> executeAggregationFunction aggFunc (findColumnIndex (getColumnsWithSource table) colName) filteredRows) aggregationFunctions
+  let resultRow = map (\(aggFunc, colName) -> executeAggregationFunction aggFunc (findColumnIndex' (getColumnsWithSource table) colName) filteredRows) aggregationFunctions
   let resultColumns = createAggregationColumns aggregationFunctions
 
   return $ Right $ SourceDataFrame [(tableName, column) | (tableName, column) <- resultColumns] [resultRow]
@@ -696,7 +696,7 @@ executeSelection table filteredRows columns = do
     let selectedColumnNames = case columns of
             Lib2.All -> map extractColumnName' (getColumnsWithSource table)
             Lib2.SelectedColumns colNames -> map snd colNames
-    let selectedColumnIndexes = mapMaybe (\colName -> findColumnIndex (getColumnsWithSource table) colName) selectedColumnNames
+    let selectedColumnIndexes = mapMaybe (\colName -> findColumnIndex' (getColumnsWithSource table) colName) selectedColumnNames
 
     let selectedColumns = map (\i -> (getColumnsWithSource table) !! i) selectedColumnIndexes
 
@@ -711,3 +711,37 @@ extractRows (DataFrame _ rows) = rows
 
 extractColumnName' :: (TableName, Column) -> String
 extractColumnName' (tableName, Column name _) = name
+
+filterRows' :: [(TableName, Column)] -> SourceDataFrame -> Maybe Lib2.Condition -> [Row]
+filterRows' columns (SourceDataFrame _ rows) condition = case condition of
+    Just (Lib2.Comparison whereStatement []) -> filter (evaluateWhereStatement whereStatement) rows
+    Just (Lib2.Comparison whereStatement logicalOps) -> filter (evaluateWithLogicalOps whereStatement logicalOps) rows
+    Nothing -> rows  -- When condition is Nothing, return all rows
+  where
+    evaluateWhereStatement :: Lib2.WhereAtomicStatement -> Row -> Bool
+    evaluateWhereStatement (Lib2.Where (tableName, columnName) op valueEither) row = case op of
+        Lib2.Equals -> case valueEither of
+            Right (StringValue stringValue) -> extractValue columnName row == stringValue
+        Lib2.NotEquals -> case valueEither of
+            Right (StringValue stringValue) -> extractValue columnName row /= stringValue
+        Lib2.LessThanOrEqual -> case valueEither of
+            Right (StringValue stringValue) -> extractValue columnName row <= stringValue
+        Lib2.GreaterThanOrEqual -> case valueEither of
+            Right (StringValue stringValue) -> extractValue columnName row >= stringValue
+
+    evaluateWithLogicalOps :: Lib2.WhereAtomicStatement -> [(Lib2.LogicalOp, Lib2.WhereAtomicStatement)] -> Row -> Bool
+    evaluateWithLogicalOps whereStatement [] row = evaluateWhereStatement whereStatement row
+    evaluateWithLogicalOps whereStatement ((Lib2.Or, nextWhereStatement):rest) row =
+        evaluateWhereStatement whereStatement row || evaluateWithLogicalOps nextWhereStatement rest row
+
+    extractValue :: ColumnName -> Row -> String
+    extractValue columnName row =
+        case findColumnIndex' columns columnName of
+            Just colIndex -> case row !! colIndex of
+                StringValue value -> value
+                _ -> ""
+            Nothing -> ""
+
+
+findColumnIndex' :: [(TableName, Column)] -> ColumnName -> Maybe Int
+findColumnIndex' columns columnName = elemIndex columnName (map (Lib2.extractColumnName . snd) columns)
