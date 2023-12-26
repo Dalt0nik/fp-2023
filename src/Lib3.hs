@@ -13,7 +13,7 @@ module Lib3
     Execution,
     ExecutionAlgebra(..),
     showTable,
-    executeInsert, --i think we don't need to export this
+    executeInsert, 
     deserializeDataFrame,
     serializeDataFrame,
     executeStatement
@@ -44,7 +44,7 @@ type ColumnName = String
 type Execution = Free ExecutionAlgebra
 type DeserializedTableNameDataFrame = (TableName, DataFrame)
 
- 
+
 data ExecutionAlgebra next
   = LoadFile TableName (Either ErrorMessage DataFrame -> next) -- deserialize table
   | SaveTable (TableName, DataFrame) (()-> next) --serialize table
@@ -277,16 +277,16 @@ executeSql sql = do
   case sql' of
     _ | "showtables" `isPrefixOf` sql' -> executeShowTables
     _ | "select" `isPrefixOf` sql' -> do
-        let restOfSql = drop 6 sql'
-        case restOfSql of
-          _ | "now()" `isPrefixOf` restOfSql -> do
-            currentTime <- getCurrentTime
-            let column = Column "time" StringType
-                value = StringValue (show currentTime)
-            return $ Right $ DataFrame [column] [[value]]
-          _ -> do
-            parsedStatement <- parseStatement sql
-            executeStatement parsedStatement
+      let restOfSql = drop 6 sql'
+      case restOfSql of
+        _ | "now()" `isPrefixOf` restOfSql -> do
+          currentTime <- getCurrentTime
+          let column = Column "time" StringType
+              value = StringValue (show currentTime)
+          return $ Right $ DataFrame [column] [[value]]
+        _ -> do
+          parsedStatement <- parseStatement sql
+          executeStatement parsedStatement
     _ | "insert" `isPrefixOf` sql' -> do
         parsedStatement <- parseStatement sql
         executeInsert parsedStatement
@@ -296,8 +296,15 @@ executeSql sql = do
     _ | "delete" `isPrefixOf` sql' -> do
         parsedStatement <- parseStatement sql
         executeDelete parsedStatement
+    -- _ | "createtable" `isPrefixOf` sql' -> do
+    --     parsedStatement <- parseStatement sql
+    --     executeCreateTable parsedStatement
+    -- _ | "droptable" `isPrefixOf` sql' -> do
+    --     let restOfSql = drop 9 sql'
+    --     let tableName = takeWhile (/= ';') restOfSql
+    --     executeDropTable tableName        
     _ | "showtable" `isPrefixOf` sql' -> do
-        let restOfSql = drop (9) sql'
+        let restOfSql = drop 9 sql'
         let tableName = takeWhile (/= ';') restOfSql
         executeShowTable tableName        
     _ -> do
@@ -379,7 +386,7 @@ deserializeDataFrame jsonStr =
 -- InMemoryTables.databases a source of data.
 -- Execute a SELECT statement
 executeStatement :: Lib2.ParsedStatement -> Execution (Either ErrorMessage DataFrame)
-executeStatement (Lib2.SelectStatement columns tableNames maybeCondition) = do
+executeStatement (Lib2.SelectStatement columns tableNames maybeCondition maybeOrder) = do
 
   --Check whether column tables match fetched tables
 

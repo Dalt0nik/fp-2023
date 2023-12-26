@@ -5,7 +5,6 @@
 {-# HLINT ignore "Use lambda-case" #-}
 
 module Lib2 where
-
 import DataFrame (DataFrame (..), Row, Column (..), ColumnType (..), Value (..))
 import InMemoryTables (TableName, database)
 import Control.Applicative((<|>), empty, Alternative (some, many))
@@ -14,6 +13,12 @@ import Data.List
 import Data.Maybe
 import Debug.Trace
 import Text.Read (Lexeme(String))
+--import Text.ParserCombinators.ReadP (optional, sepBy1)
+import Control.Monad.Trans.State.Strict (State, StateT, get, put, runState, runStateT)
+import Control.Monad.Trans.Except (ExceptT, throwE, runExceptT)
+import Control.Monad.Trans.Class(lift)
+import Control.Exception (throw)
+
 
 
 type ErrorMessage = String
@@ -35,62 +40,41 @@ data WhereAtomicStatement = Where (TableName, ColumnName) Operator (Either (Tabl
 data Condition
   = Comparison WhereAtomicStatement [(LogicalOp, WhereAtomicStatement)] deriving (Show, Eq) -- string aka column
 
-
 data Columns = All
   | SelectedColumns [(TableName, ColumnName)]
   | Aggregation [(AggregateFunction, String)] deriving (Show, Eq) -- string aka column 
 
 type ColumnName = String
 
+data Order = Order [(TableName, ColumnName, OrderDirection)] deriving (Show, Eq)
+
+data OrderDirection
+  = Asc
+  | Desc deriving (Show, Eq)
+
 data ParsedStatement
   = ShowTablesStatement
   | ShowTableStatement TableName
-  | SelectStatement Columns [TableName] (Maybe Condition)
+  | SelectStatement Columns [TableName] (Maybe Condition) (Maybe Order)
   | InsertStatement TableName [ColumnName] [[Value]]
   | UpdateStatement TableName [(ColumnName, Value)] (Maybe Condition)
-  | DeleteStatement TableName (Maybe Condition) deriving (Show, Eq)-- Condition
+  | DeleteStatement TableName (Maybe Condition)
+  | CreateTableStatement TableName [(ColumnName, ColumnType)] deriving (Show, Eq)-- Condition
 
-newtype Parser a = Parser {
-    runParser :: String -> Either ErrorMessage (String, a)
-}
+type ParseError = String
+type Parser a = ExceptT ParseError (State String) a
 
-instance Functor Parser where
-  fmap :: (a -> b) -> Parser a -> Parser b
-  fmap f functor = Parser $ \inp ->
-    case runParser functor inp of
-        Left e -> Left e
-        Right (l, a) -> Right (l, f a)
+runParser :: Parser a -> String -> Either ParseError (String, a)
+runParser p input = case runState (runExceptT p) input of
+    (Left err, _) -> Left err
+    (Right result, remainingInput) -> Right (remainingInput, result)
 
-instance Applicative Parser where
-  pure :: a -> Parser a
-  pure a = Parser $ \inp -> Right (inp, a)
-  (<*>) :: Parser (a -> b) -> Parser a -> Parser b
-  ff <*> fa = Parser $ \in1 ->
-    case runParser ff in1 of
-        Left e1 -> Left e1
-        Right (in2, f) -> case runParser fa in2 of
-            Left e2 -> Left e2
-            Right (in3, a) -> Right (in3, f a)
-
-instance Alternative Parser where
-  empty :: Parser a
-  empty = Parser $ \_ -> Left "Error"
-  (<|>) :: Parser a -> Parser a -> Parser a
-  p1 <|> p2 = Parser $ \inp ->
-    case runParser p1 inp of
-        Right r1 -> Right r1
-        Left _ -> case runParser p2 inp of
-            Right r2 -> Right r2
-            Left e -> Left e
-
-instance Monad Parser where
-  (>>=) :: Parser a -> (a -> Parser b) -> Parser b
-  ma >>= mf = Parser $ \inp1 ->
-    case runParser ma inp1 of
-        Left e1 -> Left e1
-        Right (inp2, a) -> case runParser (mf a ) inp2 of
-            Left e2 -> Left e2
-            Right (inp3, r) -> Right (inp3, r)
+tryParse :: Parser a -> Parser a -> Parser a
+tryParse p1 p2 = do
+  result1 <- lift $ runState (runExceptT p1) <$> get
+  case result1 of
+    (Right _, _) -> p1
+    _ -> p2
 
 -- Parses user input into an entity representing a parsed
 -- statement
@@ -120,10 +104,11 @@ parseStatement input = do
 parseSelectQuery :: String -> Either ErrorMessage ParsedStatement
 parseSelectQuery input = do
     (input', columns) <- parseColumnListQuery input
-    (skip, _) <- runParser parseWhitespace input'
-    (input'', tableNames) <- parseFromClause skip
+    --(skip, _) <- runParser parseWhitespace input'
+    (input'', tableNames) <- parseFromClause input'
     (input''', conditions) <- parseWhere input''
-    return (SelectStatement columns tableNames conditions)
+    (input'''', orders) <- parseOrders input'''
+    return (SelectStatement columns tableNames conditions orders)
 
 parseFromClause :: String -> Either ErrorMessage (String, [TableName])
 parseFromClause input = do
@@ -143,45 +128,41 @@ parseTableNames = do
     parseName
   return (tableName : otherTableNames)
 
-test :: ParsedStatement
-test = case parseStatement "Select employees3.job, employees2.name from employees2, employees3 where employees2.job = employees3.job" of
-  Right r -> r
-
  -- Executes a parsed statement. Produces a DataFrame. Uses
 -- InMemoryTables.databases a source of data.
 -- Execute a SELECT statement
-executeStatement :: ParsedStatement -> Either ErrorMessage DataFrame
-executeStatement (SelectStatement columns tableNames maybeCondition) = do
+-- executeStatement :: ParsedStatement -> Either ErrorMessage DataFrame
+-- executeStatement (SelectStatement columns tableNames maybeCondition) = do
 
-  -- Fetch the specified tables
-  tableDataList <- mapM fetchTableFromDatabase tableNames
+--   -- Fetch the specified tables
+--   tableDataList <- mapM fetchTableFromDatabase tableNames
 
-  -- Check if aggregation is requested
-  let isAggregationRequested = case columns of
-        Aggregation _ -> True
-        _ -> False
+--   -- Check if aggregation is requested
+--   let isAggregationRequested = case columns of
+--         Aggregation _ -> True
+--         _ -> False
 
-  -- Check if joining tables is requested
-  let numberOfTables = length tableNames
-  --if numberOfTables 
-  let isJoinRequested = case maybeCondition of
-        Just condition -> involvesMultipleTables condition
-        _ -> False
+--   -- Check if joining tables is requested
+--   let numberOfTables = length tableNames
+--   --if numberOfTables 
+--   let isJoinRequested = case maybeCondition of
+--         Just condition -> involvesMultipleTables condition
+--         _ -> False
 
-  -- Perform inner join if requested
-  if isJoinRequested then
-     if numberOfTables == 2 then executeJoin tableDataList maybeCondition columns isAggregationRequested else Left "only two tables can be joined"
-  else
-    if numberOfTables /= 1 then Left "only one table should be provided" else executeNoJoin tableDataList maybeCondition columns isAggregationRequested
+--   -- Perform inner join if requested
+--   if isJoinRequested then
+--      if numberOfTables == 2 then executeJoin tableDataList maybeCondition columns isAggregationRequested else Left "only two tables can be joined"
+--   else
+--     if numberOfTables /= 1 then Left "only one table should be provided" else executeNoJoin tableDataList maybeCondition columns isAggregationRequested
 
-executeStatement ShowTablesStatement = Right $ DataFrame [Column "TABLE NAME" StringType] (map (\tableName -> [StringValue tableName]) (showTables database))
-executeStatement (ShowTableStatement tableName) =
-  case lookup (map toLower tableName) database of
-    Just (DataFrame columns _) -> Right $ DataFrame [Column "COLUMN NAMES" StringType] (map (\col -> [StringValue (extractColumnName col)]) columns)
-    Nothing -> Left (tableName ++ " not found")
-executeStatement _ = Left "Not implemented: executeStatement"
+-- executeStatement ShowTablesStatement = Right $ DataFrame [Column "TABLE NAME" StringType] (map (\tableName -> [StringValue tableName]) (showTables database))
+-- executeStatement (ShowTableStatement tableName) =
+--   case lookup (map toLower tableName) database of
+--     Just (DataFrame columns _) -> Right $ DataFrame [Column "COLUMN NAMES" StringType] (map (\col -> [StringValue (extractColumnName col)]) columns)
+--     Nothing -> Left (tableName ++ " not found")
+-- executeStatement _ = Left "Not implemented: executeStatement"
 
--- -- Function to execute aggregation functions
+-- Function to execute aggregation functions
 executeAggregationFunction :: AggregateFunction -> Maybe Int -> [Row] -> Value
 executeAggregationFunction Min (Just colIndex) rows =
     let values = map (extractValueAtIndex colIndex) rows
@@ -265,10 +246,6 @@ filterRows columns (DataFrame _ rows) condition = case condition of
 
 dataFrameColumns :: DataFrame -> [Column]
 dataFrameColumns (DataFrame columns _) = columns
-
--- Select columns
--- selectColumns :: [Column] -> Columns -> [Column]
--- selectColumns allColumns (SelectedColumns colNames) =
 
 -- Function to check if a condition involves multiple tables (MUST BE FIRST)
 involvesMultipleTables :: Condition -> Bool
@@ -357,14 +334,14 @@ innerJoin joinColumnIndexTable1 joinColumnIndexTable2 table1 table2 maybeConditi
             else NullValue
         value1 = extractValue' joinColumnIndexTable1
         value2 = extractValue' (length (getColumns table1) + joinColumnIndexTable2) -- extracting value from the second table (num.of col. of 1st table + index in 2nd table)
-        
+
       in --trace ("Value1: " ++ show value1 ++ ", Value2: " ++ show value2) $
       case op of
         Equals ->
             case valueEither of
               Left (tableName2, columnName2) -> value1 == value2
         _ -> error "Unsupported operator for join condition"
-    
+
       where
         findColumnIndex :: [Column] -> ColumnName -> Int
         findColumnIndex columns colName =
@@ -418,29 +395,36 @@ executeSelection table filteredRows columns = do
     return $ DataFrame selectedColumns selectedRows
 ------------------------------PARSERS (BEFORE WHERE CLAUSE)----------------------------
 parseName :: Parser String
-parseName = Parser $ \inp ->
+parseName = do
+    inp <- lift get
     case takeWhile isAlphaNum inp of --recognizes only letters and numbers (takeWhile stops when the first char which returns false occurses)
-        [] -> Left "Empty input"
-        xs -> Right (drop (length xs) inp, xs) --drop (length xs) inp shows what is left in inp after xs
+        [] -> throwE "Empty input"
+        xs -> do
+           lift $ put (drop (length xs) inp)
+           return xs
 
 parseChar :: Char -> Parser Char
-parseChar a = Parser $ \inp ->
+parseChar a = do
+    inp <- lift get
     case inp of
-        [] -> Left "Empty input"
-        (x:xs) -> if a == x then Right (xs, a) else Left ([a] ++ " expected but " ++ [x] ++ " found")
+        [] -> throwE "Empty input"
+        (x:xs) -> if a == x then do
+                                lift $ put xs
+                                return a
+                            else throwE ([a] ++ " expected but " ++ [x] ++ " found")
 
 
 parseColumns :: Parser Columns
-parseColumns = parseAll <|> parseAggregationStatement <|> parseColumnList
+parseColumns = tryParse parseAll (tryParse parseColumnList parseAggregationStatement)
 
+-- parseAll :: Parser Columns
+-- parseAll = fmap (\_ -> All) $ parseChar '*'
 parseAll :: Parser Columns
-parseAll = fmap (\_ -> All) $ parseChar '*'
-
--- parseColumnList :: Parser Columns
--- parseColumnList = do
---     name <- parseName
---     other <- many parseCSName
---     return $ SelectedColumns $ name : other
+parseAll = do
+    _ <- many parseWhitespace
+    _ <- parseChar '*'
+    _ <- many parseWhitespace
+    return All
 
 parseColumnList :: Parser Columns
 parseColumnList = do
@@ -450,6 +434,7 @@ parseColumnList = do
 
 parseTableAndColumnName :: Parser (TableName, ColumnName)
 parseTableAndColumnName = do
+    _ <- many $ parseChar ' '
     tableName <- parseName
     _ <- parseChar '.'
     columnName <- parseName
@@ -466,14 +451,16 @@ parseColumnListQuery :: String -> Either ErrorMessage (String, Columns)
 parseColumnListQuery inp = runParser parseColumns inp
 
 parseKeyword :: String -> Parser String
-parseKeyword keyword = Parser $ \inp ->
-  let
-    l = length keyword
-  in if map toLower (take l inp) == map toLower keyword &&
-        (null (drop l inp) || not (isAlpha (head (drop l inp)))) then
-        Right (drop l inp, keyword)
-      else
-        Left $ keyword ++ " expected"
+parseKeyword keyword = do
+  inp <- lift get
+  let l = length keyword
+  if map toLower (take l inp) == map toLower keyword &&
+    (null (drop l inp) || not (isAlpha (head (drop l inp)))) then
+    do
+      lift $ put (drop l inp)
+      return keyword
+  else
+    throwE $ keyword ++ " expected"
 
 ----------------WHERE PARSER-----------------------
 parseLogicalOp :: Parser LogicalOp
@@ -524,7 +511,7 @@ parseWhereStatement = parseWithWhere <|> parseWithoutWhere
 
 -- Parser for atomic conditions
 parseCondition :: Parser WhereAtomicStatement
-parseCondition = parseComparisonWithStringValue <|> parseComparisonWithColumnReference
+parseCondition = tryParse parseComparisonWithStringValue parseComparisonWithColumnReference
   where
     parseComparisonWithStringValue :: Parser WhereAtomicStatement
     parseComparisonWithStringValue = do
@@ -548,39 +535,60 @@ parseCondition = parseComparisonWithStringValue <|> parseComparisonWithColumnRef
       (tableName2, columnName2) <- parseTableAndColumnName
       return $ Where (tableName1, columnName1) op (Left (tableName2, columnName2))
 
-    parseTableAndColumnName :: Parser (TableName, ColumnName)
-    parseTableAndColumnName = do
-      tableName <- parseName
-      _ <- parseChar '.'
-      columnName <- parseName
-      return (tableName, columnName)
-
-    -- Updated parseTableAndColumnName
-    -- parseTableAndColumnName :: Parser (Maybe TableName, ColumnName)
-    -- parseTableAndColumnName = parseWithTableName <|> parseWithoutTableName
-    --   where
-    --     parseWithTableName = do
-    --       tableName <- parseName
-    --       _ <- parseChar '.'
-    --       columnName <- parseName
-    --       return (Just tableName, columnName)
-
-    --     parseWithoutTableName = do
-    --       columnName <- parseName
-    --       return (Just "", columnName)
-
-
-
 
 parseWhere :: String -> Either ErrorMessage (String, Maybe Condition)
 parseWhere = runParser parseWhereStatement
 
+-----------------------------ORDER PARSER--------------------------------
+
+parseOrders :: String -> Either ErrorMessage (String, Maybe Order)
+parseOrders = runParser parseOrderStatement
+
+parseOrderStatement :: Parser (Maybe Order)
+parseOrderStatement = parseWithOrder <|> parseWithoutOrder
+  where
+    parseWithOrder = do
+      _ <- many parseWhitespace
+      _ <- parseKeyword "ORDER BY"
+      _ <- many parseWhitespace
+      firstOrderItem <- parseOrderItem
+      otherOrderItems <- many $ do
+        _ <- parseChar ','
+        _ <- many parseWhitespace
+        orderItem <- parseOrderItem
+        return orderItem
+      return $ Just $ Order (firstOrderItem : otherOrderItems)
+
+    parseWithoutOrder = pure Nothing
+
+parseOrderItem :: Parser (TableName, ColumnName, OrderDirection)
+parseOrderItem = do
+    _ <- many parseWhitespace
+    (tableName, columnName) <- parseTableAndColumnName
+    _ <- many parseWhitespace
+    direction <- parseOrderDirection
+    return (tableName, columnName, direction)
+
+parseOrderDirection :: Parser OrderDirection
+parseOrderDirection = parseAsc <|> parseDesc
+  where
+    parseAsc = do
+      _ <- many parseWhitespace
+      _ <- parseKeyword "ASC"
+      return Asc
+
+    parseDesc = do
+      _ <- many parseWhitespace
+      _ <- parseKeyword "DESC"
+      return Desc
+
 -----------MIN SUM----------------------------------------------
-parseAggregateFunction :: String -> Either ErrorMessage (String, Columns) -- aka condition aggregation
+parseAggregateFunction :: String -> Either ErrorMessage (String, Columns)
 parseAggregateFunction = runParser parseAggregationStatement
 
 parseAggregationStatement :: Parser Columns
 parseAggregationStatement = do
+    _ <- many $ parseChar ' '
     aggregationFunction <- parseAggregateFunction'
     _ <- parseChar '('
     _ <- many $ parseChar ' '
@@ -602,7 +610,7 @@ parseCSAggregateFunction = do
     return (aggregationFunction, columnName)
 
 parseAggregateFunction' :: Parser AggregateFunction
-parseAggregateFunction' = parseMin <|> parseSum
+parseAggregateFunction' = tryParse parseMin parseSum
   where
     parseMin = parseKeyword "MIN" >> pure Min
     parseSum = parseKeyword "SUM" >> pure Sum
@@ -614,7 +622,6 @@ showTables = map fst
 extractColumnName :: Column -> String
 extractColumnName (Column name _) = name
 
-
 -- LAB3
 parseValue :: Parser Value
 parseValue =
@@ -624,12 +631,15 @@ parseValue =
   StringValue <$> parseString
     where
       parseInteger :: Parser Integer
-      parseInteger = Parser $ \inp ->
-        let
-          (digits, rest) = span isDigit inp
-        in case reads digits of
-              [(n, "")] -> Right (rest, n)
-              _ -> Left "Error: Not a valid integer"
+      --parseInteger = Parser $ \inp ->
+      parseInteger = do
+        inp <- lift get
+        let (digits, rest) = span isDigit inp
+        case reads digits of
+          [(n, "")] -> do
+            lift $ put rest
+            return n
+          _ -> throwE "Error: Not a valid integer"
 
       parseBool :: Parser Bool
       parseBool = do
@@ -759,3 +769,78 @@ parseDelete input =
   case runParser parseDeleteStatement input of
     Right (_, parsedStatement) -> Right parsedStatement
     Left errMsg -> Left errMsg
+
+parseCreateTableStatement :: Parser ParsedStatement
+parseCreateTableStatement = do
+  _ <- many parseWhitespace
+  _ <- parseKeyword "CREATE"
+  _ <- parseWhitespace
+  _ <- parseKeyword "TABLE"
+  _ <- parseWhitespace
+  tableName <- parseName
+  _ <- many parseWhitespace
+  _ <- parseChar '('
+  _ <- many parseWhitespace
+
+  columnName <- parseName
+  _ <- many $ parseChar ' '
+  columnTypeString <- parseName
+  (columnType, size) <- handleOptionalNumber $ map toLower columnTypeString
+
+  other <- many parseCSColNameAndType
+
+  _ <- many parseWhitespace
+  _ <- parseChar ')'
+  _ <- many parseWhitespace
+  _ <- parseChar ';'
+  return $ CreateTableStatement tableName ((columnName, columnType) : other)
+
+parseCSColNameAndType :: Parser (ColumnName, ColumnType)
+parseCSColNameAndType = do
+    _ <- many $ parseChar ' ' --many means that can be zero or more ' ' chars
+    _ <- parseChar ','
+    _ <- many $ parseChar ' '
+    parseColumnNameAndColumnType
+
+parseColumnNameAndColumnType  :: Parser (ColumnName, ColumnType)
+parseColumnNameAndColumnType = do
+    _ <- many $ parseChar ' '
+    columnName <- parseName
+    _ <- many $ parseChar ' '
+    columnTypeString <- parseName
+    (columnType, size) <- handleOptionalNumber $ map toLower (filter (not . isSpace) columnTypeString)
+    return (columnName, columnType)
+
+convertToColumnType :: String -> ColumnType
+convertToColumnType ct
+  | "int" == ct = IntegerType
+  | "boolean" == ct = BoolType
+  | otherwise = error $ ct ++ "is an unknown column type"
+
+parseCreateTable :: String -> Either ErrorMessage ParsedStatement
+parseCreateTable input =
+  case runParser parseCreateTableStatement input of
+    Right (_, parsedStatement) -> Right parsedStatement
+    Left errMsg -> Left errMsg
+
+handleOptionalNumber :: String -> Parser (ColumnType, Maybe String)
+handleOptionalNumber "char" = do
+  size <- parseSize
+  return (StringType, size)
+handleOptionalNumber "varchar" = do
+  size <- parseSize
+  return (StringType, size)
+handleOptionalNumber other = return (convertToColumnType other, Nothing)
+
+-- Helper function to parse optional size
+parseSize :: Parser (Maybe String)
+parseSize = do
+  _ <- parseChar '('
+  sizeString <- parseName
+  let size = takeWhile isDigit sizeString
+  _ <- parseChar ')'
+  return $ Just size
+
+
+
+
