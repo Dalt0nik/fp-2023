@@ -35,6 +35,7 @@ import Data.Maybe
 import Debug.Trace
 import System.Directory
 import GHC.Generics
+import Data.Ord
 
 
 
@@ -420,13 +421,11 @@ executeStatement (Lib2.SelectStatement columns tableNames maybeCondition maybeOr
       if numberOfTables /= 1 then return (Left "only one table should be provided") else executeNoJoin combinedList maybeCondition columns isAggregationRequested
     
 
-    let firstTableNameInResult = case result of
-          Right (SourceDataFrame columns _) -> fst (head columns)
-          Left _ -> ""
 
     --traceShowM result
+    let sortedResult = fmap (`applyOrder` maybeOrder) result
 
-    case result of
+    case sortedResult of
       Right sourceDataFrame -> return $ Right $ mapSourceDataFrameToDataFrame sourceDataFrame
       Left errorMessage -> return $ Left errorMessage
 
@@ -748,3 +747,18 @@ findColumnIndex' columns columnName = elemIndex columnName (map (Lib2.extractCol
 
 mapSourceDataFrameToDataFrame :: SourceDataFrame -> DataFrame
 mapSourceDataFrameToDataFrame (SourceDataFrame columns rows) = DataFrame (map snd columns) rows
+
+
+
+applyOrder :: SourceDataFrame -> Maybe Lib2.Order -> SourceDataFrame
+applyOrder sourceDataFrame Nothing = sourceDataFrame
+applyOrder (SourceDataFrame columns rows) (Just (Lib2.Order order)) =
+  let sortedRows = foldr sortRows rows order
+  in SourceDataFrame columns sortedRows
+  where
+    sortRows :: (TableName, ColumnName, Lib2.OrderDirection) -> [[Value]] -> [[Value]]
+    sortRows (tableName, columnName, orderDirection) rows =
+      let columnIndex = fromMaybe (error "Column not found") $ findColumnIndex' columns columnName
+      in case orderDirection of
+        Lib2.Asc -> sortBy (comparing (!! columnIndex)) rows
+        Lib2.Desc -> sortBy (flip $ comparing (!! columnIndex)) rows
