@@ -126,6 +126,21 @@ runExecuteIO (Free step) = do
             [] -> return $ f (Left "no tables found")
             _ -> return $ f (Right tables)
 
+        runStep (Lib3.CreateTable tableName columns next) = do
+            let filePath = "db/" ++ tableName ++ ".json"            
+            let columnsList = Prelude.map (\(colName, colType) -> Column colName colType) columns            
+            fileExists <- doesFileExist filePath
+            if fileExists
+              then return $ next (Left "Table already exists.")
+              else do
+                let newTable = DataFrame columnsList []
+                let jsonStr = Lib3.serializeDataFrame newTable
+                writeFile filePath jsonStr
+                atomically $ modifyTVar' inMemoryDb (\db -> (tableName, newTable) : db)
+                -- Return success
+                return $ next (Right ())
+
+
 ----------------------------------------------------------------------
 type InMemoryDb = [(TableName, DataFrame)]
 

@@ -99,6 +99,9 @@ parseStatement input = do
     _ | "delete" `isPrefixOf` input' -> do
         parsedDelete <- parseDelete input
         Right parsedDelete
+    _ | "createtable" `isPrefixOf` input' -> do
+        parsedCreate <- parseCreateTable input
+        Right parsedCreate
     _ -> Left "Not implemented: parseStatement"
 
 parseSelectQuery :: String -> Either ErrorMessage ParsedStatement
