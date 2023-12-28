@@ -140,6 +140,16 @@ runExecuteIO (Free step) = do
                 -- Return success
                 return $ next (Right ())
 
+        runStep (Lib3.DropTable tableName next) = do
+          atomically $ modifyTVar' inMemoryDb $ Prelude.filter ((/= tableName) . fst)
+          let filePath = "db/" ++ tableName ++ ".json"          
+          fileExists <- doesFileExist filePath
+          if fileExists
+            then do
+              removeFile filePath
+              return $ next (Right ())
+            else return $ next (Left "Table does not exist.")
+
 
 ----------------------------------------------------------------------
 type InMemoryDb = [(TableName, DataFrame)]

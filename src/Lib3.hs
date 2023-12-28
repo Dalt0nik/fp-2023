@@ -58,6 +58,7 @@ data ExecutionAlgebra next
   | ExecuteInsert Lib2.ParsedStatement (Either ErrorMessage DataFrame -> next)
   | GetAllTables () (Either ErrorMessage [FilePath] -> next)
   | CreateTable TableName [(ColumnName, ColumnType)] (Either ErrorMessage () -> next)
+  | DropTable TableName (Either ErrorMessage () -> next) 
   deriving Functor
 
 getAllTables :: Execution (Either ErrorMessage [FilePath])
@@ -303,10 +304,10 @@ executeSql sql = do
     _ | "createtable" `isPrefixOf` sql' -> do
         parsedStatement <- parseStatement sql
         executeCreate parsedStatement
-    -- _ | "droptable" `isPrefixOf` sql' -> do
-    --     let restOfSql = drop 9 sql'
-    --     let tableName = takeWhile (/= ';') restOfSql
-    --     executeDropTable tableName        
+    _ | "droptable" `isPrefixOf` sql' -> do
+        let restOfSql = drop 9 sql'
+        let tableName = takeWhile (/= ';') restOfSql
+        executeDropTable tableName        
     _ | "showtable" `isPrefixOf` sql' -> do
         let restOfSql = drop 9 sql'
         let tableName = takeWhile (/= ';') restOfSql
@@ -760,5 +761,19 @@ executeCreate (Lib2.CreateTableStatement tableName columns) = do
         Right _ -> executeShowTable tableName  
 executeCreate _ = return $ Left "Invalid statement. Expected CREATE TABLE statement."
 
---------------------------------DELETE TABLE-------------------------------------
+--------------------------------DROP TABLE-------------------------------------
 
+executeDropTable :: TableName -> Execution (Either ErrorMessage DataFrame)
+executeDropTable tableName = do 
+    result <- liftF $ DropTable tableName id
+    case result of
+        Left errMsg -> return $ Left errMsg
+        Right _ -> executeShowTable' $ DataFrame [Column "Dataframe deleted successfully" BoolType] [[BoolValue True]]  
+executeDropTable _ = return $ Left "Invalid statement. Expected table name."
+
+
+
+
+executeShowTable' :: DataFrame -> Execution (Either ErrorMessage DataFrame)
+executeShowTable' dataFrame = do
+  return $ Right dataFrame
