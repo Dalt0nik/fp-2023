@@ -15,7 +15,7 @@ data Value
   | StringValue String
   | BoolValue Bool
   | NullValue
-  deriving (Show, Eq, Generic)
+  deriving (Show, Eq, Generic, Ord)
 
 type Row = [Value]
 
