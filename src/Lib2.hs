@@ -131,36 +131,36 @@ parseTableNames = do
  -- Executes a parsed statement. Produces a DataFrame. Uses
 -- InMemoryTables.databases a source of data.
 -- Execute a SELECT statement
--- executeStatement :: ParsedStatement -> Either ErrorMessage DataFrame
--- executeStatement (SelectStatement columns tableNames maybeCondition) = do
+executeStatement :: ParsedStatement -> Either ErrorMessage DataFrame
+executeStatement (SelectStatement columns tableNames maybeCondition maybeOrder) = do
 
---   -- Fetch the specified tables
---   tableDataList <- mapM fetchTableFromDatabase tableNames
+  -- Fetch the specified tables
+  tableDataList <- mapM fetchTableFromDatabase tableNames
 
---   -- Check if aggregation is requested
---   let isAggregationRequested = case columns of
---         Aggregation _ -> True
---         _ -> False
+  -- Check if aggregation is requested
+  let isAggregationRequested = case columns of
+        Aggregation _ -> True
+        _ -> False
 
---   -- Check if joining tables is requested
---   let numberOfTables = length tableNames
---   --if numberOfTables 
---   let isJoinRequested = case maybeCondition of
---         Just condition -> involvesMultipleTables condition
---         _ -> False
+  -- Check if joining tables is requested
+  let numberOfTables = length tableNames
+  --if numberOfTables 
+  let isJoinRequested = case maybeCondition of
+        Just condition -> involvesMultipleTables condition
+        _ -> False
 
---   -- Perform inner join if requested
---   if isJoinRequested then
---      if numberOfTables == 2 then executeJoin tableDataList maybeCondition columns isAggregationRequested else Left "only two tables can be joined"
---   else
---     if numberOfTables /= 1 then Left "only one table should be provided" else executeNoJoin tableDataList maybeCondition columns isAggregationRequested
+  -- Perform inner join if requested
+  if isJoinRequested then
+     if numberOfTables == 2 then executeJoin tableDataList maybeCondition columns isAggregationRequested else Left "only two tables can be joined"
+  else
+    if numberOfTables /= 1 then Left "only one table should be provided" else executeNoJoin tableDataList maybeCondition columns isAggregationRequested
 
--- executeStatement ShowTablesStatement = Right $ DataFrame [Column "TABLE NAME" StringType] (map (\tableName -> [StringValue tableName]) (showTables database))
--- executeStatement (ShowTableStatement tableName) =
---   case lookup (map toLower tableName) database of
---     Just (DataFrame columns _) -> Right $ DataFrame [Column "COLUMN NAMES" StringType] (map (\col -> [StringValue (extractColumnName col)]) columns)
---     Nothing -> Left (tableName ++ " not found")
--- executeStatement _ = Left "Not implemented: executeStatement"
+executeStatement ShowTablesStatement = Right $ DataFrame [Column "TABLE NAME" StringType] (map (\tableName -> [StringValue tableName]) (showTables database))
+executeStatement (ShowTableStatement tableName) =
+  case lookup (map toLower tableName) database of
+    Just (DataFrame columns _) -> Right $ DataFrame [Column "COLUMN NAMES" StringType] (map (\col -> [StringValue (extractColumnName col)]) columns)
+    Nothing -> Left (tableName ++ " not found")
+executeStatement _ = Left "Not implemented: executeStatement"
 
 -- Function to execute aggregation functions
 executeAggregationFunction :: AggregateFunction -> Maybe Int -> [Row] -> Value
