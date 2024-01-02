@@ -16,7 +16,9 @@ module Lib3
     executeInsert, 
     deserializeDataFrame,
     serializeDataFrame,
-    executeStatement
+    executeStatement,
+    executeCreate,
+    ColumnName
   )
 where
 
@@ -56,6 +58,8 @@ data ExecutionAlgebra next
   | ExecuteStatement Lib2.ParsedStatement (Either ErrorMessage DataFrame -> next)
   | ExecuteInsert Lib2.ParsedStatement (Either ErrorMessage DataFrame -> next)
   | GetAllTables () (Either ErrorMessage [FilePath] -> next)
+  | CreateTable TableName [(ColumnName, ColumnType)] (Either ErrorMessage () -> next)
+  | DropTable TableName (Either ErrorMessage () -> next) 
   deriving Functor
 
 getAllTables :: Execution (Either ErrorMessage [FilePath])
@@ -298,13 +302,13 @@ executeSql sql = do
     _ | "delete" `isPrefixOf` sql' -> do
         parsedStatement <- parseStatement sql
         executeDelete parsedStatement
-    -- _ | "createtable" `isPrefixOf` sql' -> do
-    --     parsedStatement <- parseStatement sql
-    --     executeCreateTable parsedStatement
-    -- _ | "droptable" `isPrefixOf` sql' -> do
-    --     let restOfSql = drop 9 sql'
-    --     let tableName = takeWhile (/= ';') restOfSql
-    --     executeDropTable tableName        
+    _ | "createtable" `isPrefixOf` sql' -> do
+        parsedStatement <- parseStatement sql
+        executeCreate parsedStatement
+    _ | "droptable" `isPrefixOf` sql' -> do
+        let restOfSql = drop 9 sql'
+        let tableName = takeWhile (/= ';') restOfSql
+        executeDropTable tableName        
     _ | "showtable" `isPrefixOf` sql' -> do
         let restOfSql = drop 9 sql'
         let tableName = takeWhile (/= ';') restOfSql
@@ -678,7 +682,6 @@ executeNoJoin tableDataList maybeCondition columns isAggregationRequested = do
       then executeAggregation table filteredRows columns
       else executeSelection table filteredRows columns
 
-
 executeAggregation :: SourceDataFrame -> [Row] -> Lib2.Columns -> Execution (Either ErrorMessage SourceDataFrame)
 executeAggregation table filteredRows columns = do
   let aggregationFunctions = case columns of
@@ -702,8 +705,6 @@ executeSelection table filteredRows columns = do
     let selectedRows = map (\row -> map (\i -> (row !! i)) selectedColumnIndexes) filteredRows
 
     return $ Right $ SourceDataFrame selectedColumns selectedRows
-
-
 
 extractRows :: DataFrame -> [Row]
 extractRows (DataFrame _ rows) = rows
@@ -748,6 +749,33 @@ findColumnIndex' columns columnName = elemIndex columnName (map (Lib2.extractCol
 mapSourceDataFrameToDataFrame :: SourceDataFrame -> DataFrame
 mapSourceDataFrameToDataFrame (SourceDataFrame columns rows) = DataFrame (map snd columns) rows
 
+--------------------------CREATE TABLE------------------------------
+
+
+executeCreate :: Lib2.ParsedStatement -> Execution (Either ErrorMessage DataFrame)
+executeCreate (Lib2.CreateTableStatement tableName columns) = do
+    result <- liftF $ CreateTable tableName columns id
+    case result of
+        Left errMsg -> return $ Left errMsg
+        Right _ -> executeShowTable tableName  
+executeCreate _ = return $ Left "Invalid statement. Expected CREATE TABLE statement."
+
+--------------------------------DROP TABLE-------------------------------------
+
+executeDropTable :: TableName -> Execution (Either ErrorMessage DataFrame)
+executeDropTable tableName = do 
+    result <- liftF $ DropTable tableName id
+    case result of
+        Left errMsg -> return $ Left errMsg
+        Right _ -> executeShowTable' $ DataFrame [Column "Dataframe deleted successfully" BoolType] [[BoolValue True]]  
+executeDropTable _ = return $ Left "Invalid statement. Expected table name."
+
+
+
+
+executeShowTable' :: DataFrame -> Execution (Either ErrorMessage DataFrame)
+executeShowTable' dataFrame = do
+  return $ Right dataFrame
 
 
 applyOrder :: SourceDataFrame -> Maybe Lib2.Order -> SourceDataFrame
